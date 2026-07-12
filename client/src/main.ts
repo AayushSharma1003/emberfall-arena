@@ -29,6 +29,7 @@ import { silentAudio } from "./engine/audio.js";
 import { ScreenFlow, ScreenHost, type ScreenId, type ScreenView } from "./ui/flow.js";
 import type { UiContext } from "./ui/screens.js";
 import { MenuScreen } from "./ui/menu.js";
+import { CharSelectScreen } from "./ui/charselect.js";
 import { PlaceholderScreen } from "./ui/placeholder.js";
 
 /** Visual classification + signature color for a projectile. */
@@ -76,7 +77,7 @@ function menuMode(app: Application): void {
   const ctx: UiContext = { app, flow, audio: silentAudio };
   const views: Record<ScreenId, ScreenView> = {
     menu: new MenuScreen(ctx),
-    charselect: new PlaceholderScreen(ctx, "charselect", "CHOOSE YOUR FIGHTERS", "menu"),
+    charselect: new CharSelectScreen(ctx),
     mapselect: new PlaceholderScreen(ctx, "mapselect", "CHOOSE THE GROUND", "menu"),
     loading: new PlaceholderScreen(ctx, "loading", "THE EMBERS STIR…", null, { to: "match", afterS: 0.8 }),
     match: new PlaceholderScreen(ctx, "match", "THE MATCH", "menu"),

@@ -60,11 +60,20 @@ const LEGAL: Record<ScreenId, readonly ScreenId[]> = {
   results: ["loading", "menu"],
 };
 
+/** What character select hands to map select; map select completes it into a MatchConfig. */
+export interface MatchDraft {
+  mode: MatchMode;
+  playerChar: CharId;
+  allyChar: CharId | null;
+}
+
 export class ScreenFlow {
   screen: ScreenId = "menu";
   /** Set by startMatch; kept through rematch. */
   config: MatchConfig | null = null;
   result: MatchResult | null = null;
+  /** Char-select picks en route to map select (null when just browsing). */
+  draft: MatchDraft | null = null;
   /** True when charselect/mapselect were opened from the menu just to browse. */
   browsing = false;
   private listeners: ((to: ScreenId) => void)[] = [];
