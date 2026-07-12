@@ -386,3 +386,92 @@ to same-origin `wss://host/ws` under HTTPS — zero client config in prod.
 - No rematch flow (refresh to re-lobby), no spectators, no profanity
   filter, no accounts/persistence, JSON (not binary) protocol, lobby slots
   tombstone on stranger-leave, no mobile/touch input.
+
+---
+
+## Phase H — Painterly rigs, roster to 9, melee/ranged primaries
+
+(Summarized from the pre-flow commits `7ac4f12` + `2b26855`.)
+- Fighters became procedural painterly rigs (`client/src/paint/`) driven from
+  sim state — bone hierarchies posed per (state, velocity, attack timeline,
+  aim), plus a flame rig for Pyre. No sprites.
+- Roster grew from 6 to 9 (Sable, Hessa, Pyre added); 4 maps (Stormshard,
+  Ashwood added) with parallax scenes + stage hazards.
+- **Melee/ranged primary distinction** (`CharacterDef.attackType`): melee
+  fighters swing; ranged fighters fire a projectile on every primary press
+  and keep a melee heavy. Sim reads it via `move.kind` (schema-locked), the
+  bot spaces/attacks by it, the rig picks cast/bow-draw vs swing poses.
+- 241 tests at the end of this phase.
+
+---
+
+## Phase I — Single-player flow: menu, selects, quick match, results
+
+**Built (this phase)**
+- **Screen state machine** (`client/src/ui/flow.ts`): typed `ScreenFlow`
+  (menu | charselect | mapselect | loading | match | results) with a
+  legal-transition table, `MatchConfig`/`MatchDraft`/`MatchResult` payloads,
+  `rosterOf()` slot ordering, and `ScreenHost` — a fade-driven mount/unmount
+  orchestrator. Its ordering guarantees (old unmounted exactly once before
+  new mounts; retarget mid-fade without double-mounting) ARE the
+  container-teardown / no-leak contract, tested headlessly.
+- **Match stats** (`shared/src/matchstats.ts`): `MatchStatsTracker` consumes
+  the sim event stream + a per-tick damage sweep → KOs (credited to the last
+  direct hitter; hazard/self falls credit nobody), damage dealt/taken (burn
+  chip counted via damage diff), and an MVP score. Lives in shared/ so a
+  server could tally identically.
+- **Screens** (`client/src/ui/`): a shared UI kit (`screens.ts`: palette,
+  serif/mono styles, `UiButton` with ember-underline hover, `EmberEmitter`,
+  `BaseScreen` with per-mount fresh root + auto-removed listeners + resize
+  layout). Main menu reuses `KeepScene` as a slow-panning vista under an
+  animated title; character select is a 9-fighter grid + a live rig-puppet
+  preview that loops each fighter's *actual* primary (ranged fighters
+  cast/draw/lob a projectile matching their `ProjectileDef`, melee swing);
+  map select renders 4 live `MiniScene` thumbnails (real `StageScene` at
+  0.32× particle density) with blast-shape/hazard/mood detail; match runs the
+  hotseat loop with one human + difficulty-gated `BotController`s; results
+  shows per-fighter panels with MVP crown + rematch.
+- **Wiring** (`main.ts`): default boot is the menu flow; hotseat moved behind
+  `?hotseat`; online untouched. Shared P1 input assembly extracted to
+  `engine/localinput.ts`; `projDraw` moved to `render.ts`. Entry module
+  declines HMR so dev hot-patches can't stack a second Pixi app/ticker.
+
+**Design decisions (flagged)**
+- **Quick-match MVP is 1v1 vs one bot, with 2v2 built into the config type
+  from day one.** `MatchConfig.mode` + `rosterOf()` produce a 1-human /
+  1-bot solo roster or a 2v2 (human + bot ally vs two bots) with zero sim
+  changes — `addFighter(charId, team)` already existed. Char select lets you
+  assemble a 2-fighter team so the UI never needs rework to enable 2v2.
+- **Difficulty maps straight onto the existing `botLevel(1|2|3)`** — no new
+  AI, just gated `BotParams` (reaction/aggression/wisdom).
+- **Opponents are random distinct characters** (mirror allowed only if the
+  roster runs out), seeded per match so a rematch reseeds for variety.
+
+**Tests: 257/257 green** (16 new: 6 flow — legal-transition table, config
+handoff, rematch reseed, roster ordering; 6 host — boot-without-fade,
+swap-at-black ordering, retarget-mid-fade no double-mount, alpha peaks at 1
+on swap; 10 stats — hit/KO/self/hazard credit, burn-in-taken, MVP weighting,
+end-to-end through a real sim exchange). Client `tsc --noEmit` + build clean.
+
+**Verified in-browser** (screens are visual; the sim/flow/stats logic is
+test-locked): menu vista + hover + settings; character select roster with
+ranged-vs-melee preview poses/chips; map select live thumbnails + per-map
+blast-shape; a full quick match — 3-2-1 countdown → live combat → a Wren
+(ranged) bot kiting and firing arcing arrows rather than swinging → match
+resolves → results with correct MVP/attribution → rematch reseeds.
+(Preview-pane rAF throttling freezes fades mid-transition between automated
+tool calls — an environment artifact, not a bug; `ScreenHost` was driven
+deterministically to verify.)
+
+**Needs human playtesting (not provable by tests)**
+- Whether the menu hits the "concept-art-in-motion" bar; transition timing
+  feel (`FADE_OUT_S`/`FADE_IN_S`).
+- Bot difficulty curve at Easy/Normal/Hard against a real player (the AI was
+  only ever verified against a passive human here).
+- 2v2 quick-match balance with a bot ally (the mode works; feel is untested).
+
+**Deferred / out of scope for this phase** (per the brief)
+- 2v2 online lobby + room-code UX (next phase; single-player flow first).
+- Full settings screen (stubbed: volume + fullscreen only).
+- Audio implementation (hooks reserved in `engine/audio.ts`; UI routes
+  `ui_move`/`ui_select`/`ui_back`/`countdown`/`match_win` through the bus).
