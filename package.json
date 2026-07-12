@@ -6,10 +6,14 @@
     "client",
     "server"
   ],
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "dev": "npm run dev --workspace client",
     "dev:server": "npm run dev --workspace server",
     "build": "npm run build --workspace client && npm run build --workspace server",
+    "start": "npm start --workspace server",
     "test": "vitest run",
     "test:watch": "vitest"
   },

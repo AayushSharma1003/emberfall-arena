@@ -1,0 +1,24 @@
+# Render Blueprint — one free Web Service serving the client bundle AND the
+# WebSocket game server on a single origin, so the client's default
+# wss://<host>/ws derivation works with zero client config.
+#
+# Free tier: single instance (matches in-memory rooms), spins down after
+# ~15 min idle → 30-50s cold start on next request. No scaling directives
+# (free tier ignores them). See docs/DEPLOY.md for the runbook.
+services:
+  - type: web
+    name: emberfall-arena
+    runtime: node
+    plan: free
+    region: singapore # closest to India on the free tier
+    # --include=dev is REQUIRED: NODE_ENV=production makes `npm ci` skip
+    # devDependencies, which would strip typescript/vite/esbuild and fail the
+    # build. Runtime only needs express/compression/ws (real dependencies).
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # PORT is injected by Render — do NOT set it here.

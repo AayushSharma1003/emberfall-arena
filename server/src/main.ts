@@ -2,13 +2,25 @@
  * WebSocket transport + room registry. All game logic lives in Room /
  * the shared Sim; this file only parses messages, tracks latency, and
  * drives room ticks on a drift-corrected 60 Hz loop.
+ *
+ * Single-origin deploy: the same process serves the client bundle and the
+ * game socket (see httpserver.ts) so `wss://<host>/ws` needs no client config.
  */
-import { WebSocketServer, WebSocket } from "ws";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { WebSocket } from "ws";
 import { SIM_HZ, CHARACTERS, STAGES, type CharId, type ClientMsg, type ServerMsg } from "@emberfall/shared";
 import { Room } from "./room.js";
+import { createAppServer, shutdown } from "./httpserver.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const rooms = new Map<string, Room>();
+
+// client/dist relative to THIS file — works whether we run the esbuild bundle
+// (server/dist/main.js) or tsx in dev (server/src/main.ts); never process.cwd().
+const clientDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "client", "dist");
+const app = createAppServer({ clientDir });
+const wss = app.wss;
 
 function makeRoomCode(): string {
   const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
@@ -29,10 +41,6 @@ interface ConnState {
   lastPingSent: number;
   rttMs: number;
 }
-
-// maxPayload: nothing legitimate is near 4 KB (input packets are ~200 B) —
-// oversized frames get the connection dropped by ws
-const wss = new WebSocketServer({ port: PORT, maxPayload: 4096 });
 
 wss.on("connection", (ws: WebSocket) => {
   const state: ConnState = { room: null, playerId: -1, lastPingSent: 0, rttMs: 0 };
@@ -148,7 +156,7 @@ wss.on("connection", (ws: WebSocket) => {
 const TICK_MS = 1000 / SIM_HZ;
 let last = Date.now();
 let acc = 0;
-setInterval(() => {
+const tickTimer = setInterval(() => {
   const now = Date.now();
   acc += now - last;
   last = now;
@@ -162,4 +170,17 @@ setInterval(() => {
   }
 }, 4);
 
-console.log(`[server] Emberfall Arena listening on :${PORT} (sim ${SIM_HZ}Hz)`);
+app.server.listen(PORT, "0.0.0.0", () => {
+  console.log(`[server] Emberfall Arena listening on :${PORT} (sim ${SIM_HZ}Hz) — /ws game, / client, /health`);
+});
+
+// SIGTERM (Render deploy/spin-down) + SIGINT (local Ctrl-C): stop ticking,
+// close sockets cleanly (client onClose → "reconnect"), exit. Clean close, no
+// custom "restarting" message — that lands with the online-menu follow-up.
+function onSignal(sig: string): void {
+  console.log(`[server] ${sig} received — shutting down`);
+  clearInterval(tickTimer);
+  shutdown(app, { hardExitMs: 2000 });
+}
+process.on("SIGTERM", () => onSignal("SIGTERM"));
+process.on("SIGINT", () => onSignal("SIGINT"));

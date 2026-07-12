@@ -32,7 +32,19 @@ another. Optional params: `&char=goblin&name=Zed&stage=molten_span`.
 Pick characters with 1-9, Space to ready up. 2-4 players (teams alternate
 by join order: P1+P3 vs P2+P4).
 
-Deploying to Oracle Cloud Always Free: `docs/DEPLOY.md`.
+## Deploy
+
+Live target is **Render free tier** — one Web Service serves the client bundle
+and the WebSocket game server on a single origin (so `wss://<host>/ws` needs no
+client config). Blueprint: [`render.yaml`](render.yaml); runbook + build-failure
+notes: [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
+```bash
+npm run build                              # client/dist + server/dist/main.js
+PORT=8099 node server/dist/main.js         # prod server: / client, /ws game, /health
+```
+
+<!-- deployed at: filled in after the first Render deploy -->
 
 ## Controls
 

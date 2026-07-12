@@ -1,4 +1,87 @@
-# Deploying to Oracle Cloud Always Free (Ampere A1)
+# Deploying Emberfall Arena
+
+**Live target: Render free tier** — one Web Service serving the client bundle
+and the game socket on a single origin (§ Render below). The Oracle Cloud
+section that follows is **reference only** (kept for a future self-hosted move),
+not the current deployment path.
+
+---
+
+# Render (live runbook)
+
+One free **Web Service** runs the compiled server, which serves both the static
+client (`client/dist`) and the WebSocket game server on one origin. Single
+origin means the client's default `wss://<host>/ws` derivation works with **zero
+client config**. Config lives in [`render.yaml`](../render.yaml) (a Blueprint).
+
+## How it works (architecture)
+
+- **One process, one origin.** `server/dist/main.js` (esbuild bundle) runs an
+  Express app: `GET /health` → `ok`, `/ws` → upgraded to the game socket
+  (gated — upgrades on any other path are rejected), everything else → static
+  `client/dist` with SPA fallback so deep links like `/?room=CODE` resolve.
+- **Single instance, in-memory rooms.** Rooms/matches/reconnect-tokens live in
+  memory (no DB). Render free tier is single-instance — which is *required*,
+  since rooms on one instance are invisible to another. Do not scale out.
+- **Prod runs compiled JS, not tsx.** `shared/` is inlined into the bundle by
+  esbuild (`--external:ws,express,compression`), so `shared/package.json` stays
+  pointed at `src` and the client build + test suite are untouched.
+
+## First deploy
+
+1. **Push `render.yaml` + this code to GitHub `main`.** (The push triggers the
+   Blueprint pickup, so do it once you're ready.)
+2. Render dashboard → **New +** → **Blueprint** → select the `emberfall-arena`
+   repo. Render reads `render.yaml` and creates the Web Service.
+3. **Build + deploy** runs `npm ci --include=dev && npm run build` then
+   `npm start`. First build ≈ **3–5 min** (installs Pixi + esbuild, builds
+   client + server). Watch the deploy logs.
+4. When it goes **Live**, open the generated **`https://emberfall-arena.onrender.com`**
+   (or whatever name Render assigns). The menu → quick-match-vs-bots flow works
+   immediately; online multiplayer is `…/?server` (creates a room + code) and
+   `…/?room=CODE` (joins) — see the online section in the README.
+5. `autoDeploy: true` — every push to `main` redeploys automatically.
+
+## Cold starts (expected, not a bug)
+
+Free-tier services **spin down after ~15 min idle**; the next request triggers a
+**30–50 s cold start** while the instance boots. First visitor after a quiet
+period waits; everyone after is instant until it idles again. We deliberately do
+**not** run a keep-warm pinger. A live match that's idle long enough will also be
+dropped on spin-down (in-memory state) — fine at this scale.
+
+## If the build fails
+
+The two most likely first-deploy failures, both already guarded in
+`render.yaml` but worth knowing:
+
+1. **`vite: not found` / `tsc: not found` / `esbuild: not found` during build.**
+   Render sets `NODE_ENV=production`, which makes plain `npm ci` **skip
+   devDependencies** — and `typescript`, `vite`, `esbuild` all live there. The
+   fix is the `--include=dev` in `buildCommand: npm ci --include=dev && npm run
+   build`. If you see this error, that flag was dropped from `render.yaml`.
+
+2. **`Cannot find package '@emberfall/shared'` or a `.ts` import error at
+   runtime.** The server is meant to run the **esbuild bundle** (`node
+   dist/main.js`) with `shared/` inlined. This breaks if either: (a) the server
+   `build` script reverted to `tsc --noEmit` (no `dist/main.js` emitted — the
+   bundle step is the `esbuild …` half of the command), or (b) someone repointed
+   `shared/package.json` `main` at `src/index.ts` *and* switched `start` back to
+   `tsx`/`node src`. Runtime must be `node dist/main.js`; `shared` must be
+   bundled, not resolved from `node_modules` at runtime. Verify locally with
+   `npm run build && PORT=8099 node server/dist/main.js` then `curl
+   localhost:8099/health`.
+
+Other quick checks: `.nvmrc` pins Node 22 (Render honors it); `PORT` must **not**
+be set in `render.yaml` (Render injects it, the server reads `process.env.PORT`).
+
+---
+
+# Oracle Cloud Always Free (Ampere A1) — REFERENCE ONLY
+
+> Not the live target. Kept for a possible future self-hosted move. Predates the
+> single-origin server refactor, so its Caddy-splits-static-from-`/ws` model and
+> `npx tsx` start command differ from the current Render setup.
 
 Target: one VM serving the static client (Caddy, auto-HTTPS) and the
 WebSocket game server (Node, systemd). Total cost: $0.
@@ -45,7 +128,7 @@ sudo apt update && sudo apt install -y caddy
 cd /opt && sudo mkdir emberfall && sudo chown $USER emberfall
 git clone <your-repo-url> emberfall && cd emberfall   # or rsync the folder
 npm ci
-npm test                       # 123 tests should pass on the VM too
+npm test                       # 264 tests should pass on the VM too
 npm run build                  # client -> client/dist, server typecheck
 ```
 
@@ -129,9 +212,12 @@ it launched, verify on the wire:
 - **Updates**: `git pull && npm ci && npm run build && sudo systemctl restart emberfall`.
   Restart kills live matches — do it when the server is empty
   (`journalctl -u emberfall | tail` shows joins/leaves).
-- **Bandwidth**: JSON snapshots ≈ 30 KB/s per client in a 4-player match ≈
-  0.4 GB/hour for a full room. Always Free egress is 10 TB/month — not a
-  concern until the game is popular enough to deserve binary encoding.
+- **Bandwidth** (measured, not estimated): JSON snapshots average ~4 KB at
+  20 Hz ≈ **~81 KB/s down per client**; a full 4-player room ≈ **~324 KB/s ≈
+  1.15 GB/hour** of egress (input up is ~5–6 KB/s per client). Oracle Always
+  Free egress is 10 TB/month, so this is a non-concern there; on a metered host
+  it's the first thing binary encoding would cut. (An earlier draft of this doc
+  said ~30 KB/s — that was wrong; the real figure is ~2.7× higher.)
 - **Backups**: there is no persistent state (rooms are in-memory). Back up
   the repo, nothing else.
 - **Security posture**: inputs sanitized server-side (NaN/Infinity/garbage
