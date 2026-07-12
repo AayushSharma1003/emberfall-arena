@@ -1,14 +1,16 @@
 /**
  * Entry point + game modes.
  *
- *  - Local hotseat (default): two players, one sim, one machine.
- *    URL: ?stage=molten_span picks the map.
+ *  - Menu flow (default): main menu -> character select -> map select ->
+ *    quick match vs bots -> results. Screen state machine in ui/flow.ts.
+ *  - Local hotseat (?hotseat): two players, one sim, one machine.
+ *    URL: ?hotseat&stage=molten_span picks the map.
  *  - Online (?server[=ws://host:port]&room=CODE&char=knight&name=NAME&stage=id):
  *    server-authoritative with client prediction + reconciliation for the
  *    local fighter and snapshot interpolation for remote fighters. The
  *    stage is chosen by whoever creates the room.
  */
-import { Application } from "pixi.js";
+import { Application, Graphics } from "pixi.js";
 import {
   CHARACTERS, CHAR_IDS, DT, INPUT_BATCH, INTERP_DELAY_TICKS, STAGE_INFO,
   Sim, Predictor, Interpolator, makeFighter, stageById, applyFighterSnap,
@@ -23,6 +25,11 @@ import {
 } from "./render.js";
 import { NetClient } from "./net.js";
 import { LobbyScreen } from "./lobby.js";
+import { silentAudio } from "./engine/audio.js";
+import { ScreenFlow, ScreenHost, type ScreenId, type ScreenView } from "./ui/flow.js";
+import type { UiContext } from "./ui/screens.js";
+import { MenuScreen } from "./ui/menu.js";
+import { PlaceholderScreen } from "./ui/placeholder.js";
 
 /** Visual classification + signature color for a projectile. */
 function projDraw(
@@ -53,9 +60,44 @@ async function main(): Promise<void> {
   const params = new URLSearchParams(location.search);
   if (params.has("server") || params.has("room")) {
     onlineMode(app, params);
-  } else {
+  } else if (params.has("hotseat")) {
     localMode(app, params);
+  } else {
+    menuMode(app);
   }
+}
+
+// ---------------------------------------------------------------------------
+// menu flow (default boot)
+// ---------------------------------------------------------------------------
+
+function menuMode(app: Application): void {
+  const flow = new ScreenFlow();
+  const ctx: UiContext = { app, flow, audio: silentAudio };
+  const views: Record<ScreenId, ScreenView> = {
+    menu: new MenuScreen(ctx),
+    charselect: new PlaceholderScreen(ctx, "charselect", "CHOOSE YOUR FIGHTERS", "menu"),
+    mapselect: new PlaceholderScreen(ctx, "mapselect", "CHOOSE THE GROUND", "menu"),
+    loading: new PlaceholderScreen(ctx, "loading", "THE EMBERS STIR…", null, { to: "match", afterS: 0.8 }),
+    match: new PlaceholderScreen(ctx, "match", "THE MATCH", "menu"),
+    results: new PlaceholderScreen(ctx, "results", "THE RECKONING", "menu"),
+  };
+  const host = new ScreenHost(views, flow);
+  host.boot();
+
+  // fade overlay rides above every screen (and above match renderers, which
+  // add their own containers to app.stage — hence the re-raise each frame)
+  const overlay = new Graphics();
+  app.stage.addChild(overlay);
+  app.ticker.add((ticker) => {
+    const dt = Math.min(ticker.deltaMS / 1000, 0.1);
+    host.update(dt);
+    overlay.clear();
+    if (host.overlayAlpha > 0.001) {
+      overlay.rect(0, 0, app.screen.width, app.screen.height).fill({ color: 0x08060e, alpha: host.overlayAlpha });
+    }
+    app.stage.addChild(overlay);
+  });
 }
 
 // ---------------------------------------------------------------------------
