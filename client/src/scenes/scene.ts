@@ -88,12 +88,20 @@ interface FieldParticle {
 const rnd = (a: number, b: number): number => a + Math.random() * (b - a);
 
 export class ParticleField {
+  /**
+   * Global spawn-count multiplier, read once per field at construction.
+   * Map-select thumbnails set this < 1 while building four scenes at once,
+   * then restore it — the match and menu always run at 1.
+   */
+  static densityScale = 1;
+
   readonly node = new Container();
   private parts: FieldParticle[] = [];
   private t = Math.random() * 100;
 
   constructor(private cfg: FieldCfg) {
-    for (let i = 0; i < cfg.count; i++) {
+    const count = Math.max(1, Math.round(cfg.count * ParticleField.densityScale));
+    for (let i = 0; i < count; i++) {
       const g = new Graphics();
       const size = rnd(cfg.size[0], cfg.size[1]);
       const color = cfg.colors[Math.floor(Math.random() * cfg.colors.length)];

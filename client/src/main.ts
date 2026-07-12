@@ -30,6 +30,7 @@ import { ScreenFlow, ScreenHost, type ScreenId, type ScreenView } from "./ui/flo
 import type { UiContext } from "./ui/screens.js";
 import { MenuScreen } from "./ui/menu.js";
 import { CharSelectScreen } from "./ui/charselect.js";
+import { MapSelectScreen } from "./ui/mapselect.js";
 import { PlaceholderScreen } from "./ui/placeholder.js";
 
 /** Visual classification + signature color for a projectile. */
@@ -78,7 +79,7 @@ function menuMode(app: Application): void {
   const views: Record<ScreenId, ScreenView> = {
     menu: new MenuScreen(ctx),
     charselect: new CharSelectScreen(ctx),
-    mapselect: new PlaceholderScreen(ctx, "mapselect", "CHOOSE THE GROUND", "menu"),
+    mapselect: new MapSelectScreen(ctx),
     loading: new PlaceholderScreen(ctx, "loading", "THE EMBERS STIR…", null, { to: "match", afterS: 0.8 }),
     match: new PlaceholderScreen(ctx, "match", "THE MATCH", "menu"),
     results: new PlaceholderScreen(ctx, "results", "THE RECKONING", "menu"),
@@ -457,5 +458,10 @@ function ownMovementEvent(e: SimEvent, myId: number): boolean {
       return false; // hits/KOs/respawns/items wait for the server's word
   }
 }
+
+// This module bootstraps a Pixi Application + ticker. A hot-patch would re-run
+// main() and stack a second app/canvas over the first (leaked ticker, ghost
+// fade overlays). Force a full reload on any edit to this entry module instead.
+(import.meta as { hot?: { decline(): void } }).hot?.decline();
 
 main();
