@@ -173,7 +173,9 @@ describe("molten_span (map 2)", () => {
     const sim = new Sim(moltenSpan());
     const f = sim.addFighter("knight");
     sim.addFighter("knight");
-    place(f, 960, 400); // above the bridge (y=590)
+    // x=820: over the bridge (780..1140) but clear of the forge hammer's
+    // track (895..1025), which would otherwise catch the fall first
+    place(f, 820, 400);
     place(sim.fighters[1], 480, 700);
     const landed = stepUntil(sim, () => f.grounded, 120);
     expect(landed).toBeGreaterThan(0);

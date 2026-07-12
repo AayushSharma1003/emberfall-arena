@@ -5,3 +5,4 @@ export * from "./sim.js";
 export * from "./snapshot.js";
 export * from "./netcode.js";
 export * from "./stages.js";
+export * from "./bot.js";

@@ -8,7 +8,7 @@ import { Btn } from "@emberfall/shared";
 
 type KeyMap = Record<string, Btn>;
 
-/** P1: WASD + Shift dash + F shoot. Mouse = aim, LMB light, RMB heavy. J/K keyboard fallback. */
+/** P1: WASD + Shift dash + F special (hold to charge) + Q ultimate. Mouse = aim, LMB light, RMB heavy. J/K keyboard fallback. */
 const P1: KeyMap = {
   KeyA: Btn.Left,
   KeyD: Btn.Right,
@@ -17,10 +17,11 @@ const P1: KeyMap = {
   KeyJ: Btn.Light,
   KeyK: Btn.Heavy,
   KeyF: Btn.Shoot,
+  KeyQ: Btn.Ultimate,
   ShiftLeft: Btn.Dash,
 };
 
-/** P2 (hotseat fallback): arrows aim 8-way while held. */
+/** P2 (hotseat fallback): arrows aim 8-way while held. Quote = ultimate. */
 const P2: KeyMap = {
   ArrowLeft: Btn.Left,
   ArrowRight: Btn.Right,
@@ -30,6 +31,7 @@ const P2: KeyMap = {
   Period: Btn.Heavy,
   Slash: Btn.Dash,
   ShiftRight: Btn.Shoot,
+  Quote: Btn.Ultimate,
 };
 
 export class Keyboard {
@@ -106,7 +108,7 @@ export interface PadSample {
 const STICK_DEADZONE = 0.3;
 const AIM_DEADZONE = 0.25;
 
-/** Standard-mapping gamepads: A jump, X light, B heavy, Y shoot, LB/RB dash. */
+/** Standard-mapping gamepads: A jump, X light, B heavy, Y shoot, LB/RB dash, RT ultimate. */
 export class Gamepads {
   sample(padIndex: number): PadSample {
     const pad = navigator.getGamepads?.()[padIndex];
@@ -119,6 +121,7 @@ export class Gamepads {
     if (b[1]?.pressed) m |= Btn.Heavy;  // B / Circle
     if (b[3]?.pressed) m |= Btn.Shoot;  // Y / Triangle
     if (b[4]?.pressed || b[5]?.pressed) m |= Btn.Dash; // LB / RB
+    if (b[7]?.pressed) m |= Btn.Ultimate; // RT
 
     const lx = pad.axes[0] ?? 0;
     const ly = pad.axes[1] ?? 0;

@@ -17,7 +17,21 @@ export type SfxId =
   | "proj_die"
   | "item_spawn"
   | "item_pickup"
-  | "match_win";
+  | "match_win"
+  | "explode"
+  | "teleport"
+  | "parry"
+  | "ult"
+  | "charge"
+  | "release"
+  | "burn"
+  | "zone"
+  | "construct"
+  | "construct_die"
+  | "ui_move"
+  | "ui_select"
+  | "ui_back"
+  | "countdown";
 
 export interface SfxOpts {
   /** World x, for stereo panning later. */

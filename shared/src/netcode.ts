@@ -14,7 +14,7 @@
  */
 import { Sim, type Stage, type SimEvent } from "./sim.js";
 import type { InputFrame, TickInput } from "./protocol/input.js";
-import { applySimSnap, type SimSnap, type FighterSnap, type ProjSnap } from "./snapshot.js";
+import { applySimSnap, type ConstructSnap, type SimSnap, type FighterSnap, type ProjSnap } from "./snapshot.js";
 import type { CharId } from "./characters.js";
 import { DT } from "./sim.js";
 
@@ -111,6 +111,8 @@ export class Predictor {
 export interface InterpSample {
   fighters: FighterSnap[];
   projectiles: ProjSnap[];
+  constructs: ConstructSnap[];
+  zones: SimSnap["zones"];
   items: SimSnap["items"];
 }
 
@@ -164,9 +166,9 @@ export class Interpolator {
     const projectiles = a.projectiles.map((p): ProjSnap => ({
       ...p,
       x: p.x + p.vx * dt,
-      y: p.y + p.vy * dt + 0.5 * 3400 * p.def.gravityScale * dt * dt,
+      y: p.y + p.vy * dt + (p.armed ? 0 : 0.5 * 3400 * p.def.gravityScale * dt * dt),
     }));
 
-    return { fighters, projectiles, items: a.items };
+    return { fighters, projectiles, constructs: a.constructs, zones: a.zones, items: a.items };
   }
 }

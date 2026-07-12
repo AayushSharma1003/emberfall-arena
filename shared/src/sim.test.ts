@@ -316,9 +316,11 @@ describe("body collision", () => {
 });
 
 describe("projectiles", () => {
+  // NOTE: these two fire the demon queen's soulfire — the mage's ember bolt
+  // became a hold-to-charge special (fires on release; see mechanics.test.ts)
   it("a projectile special travels along aim and applies the knockback formula", () => {
     const { sim, b } = makeSim();
-    sim.setCharacter(0, "mage");
+    sim.setCharacter(0, "demon_queen");
     settle(sim, 800, 1200);
     steps(sim, 1, [frame(Btn.Shoot, 1, 0)]);
     const t = stepUntil(sim, () => b.damage > 0, 80);
@@ -331,7 +333,7 @@ describe("projectiles", () => {
 
   it("projectiles are blocked by solid platforms", () => {
     const { sim, b } = makeSim();
-    sim.setCharacter(0, "mage");
+    sim.setCharacter(0, "demon_queen");
     settle(sim);
     // fire straight down into the main platform; it dies within a tick of spawning
     const events: SimEvent[] = [];

@@ -14,14 +14,17 @@ import {
 import { Sim, TUNING, emberfallKeep, type Fighter } from "./sim.js";
 import { N, frame, place, steps } from "./testutil.js";
 
+/** The four classic slots (exact-knockback execution tests run on these). */
 const SLOTS: MoveSlot[] = ["light", "heavy", "aerial", "special"];
+/** Every slot, ultimates included (schema + uniqueness run on these). */
+const ALL_SLOTS: MoveSlot[] = [...SLOTS, "ultimate"];
 
 // ---------- schema validation ----------
 describe("moveset schema", () => {
   for (const id of CHAR_IDS) {
     const c = CHARACTERS[id];
     it(`${id}: all moves have valid frame data`, () => {
-      for (const slot of SLOTS) {
+      for (const slot of ALL_SLOTS) {
         const m = c.moves[slot];
         expect(m.startupTicks, `${m.id} startup`).toBeGreaterThanOrEqual(1);
         expect(m.activeTicks, `${m.id} active`).toBeGreaterThanOrEqual(1);
@@ -30,13 +33,26 @@ describe("moveset schema", () => {
         if (m.kind === "projectile") {
           expect(m.projectile, `${m.id} projectile def`).toBeDefined();
           expect(m.projectile!.damage).toBeGreaterThan(0);
-          expect(m.projectile!.speed).toBeGreaterThan(0);
+          // stationary clones (spawned at origin, pre-armed) legitimately have speed 0
+          if (!m.projectileAtOrigin) expect(m.projectile!.speed, `${m.id} speed`).toBeGreaterThan(0);
           expect(m.projectile!.lifeTicks).toBeGreaterThan(0);
+        } else if (m.construct) {
+          // deploy moves have no hitbox of their own — the turret is the payload
+          expect(m.construct.hp, `${m.id} construct hp`).toBeGreaterThan(0);
+          expect(m.construct.lifeTicks).toBeGreaterThan(0);
+          expect(m.construct.maxActive).toBeGreaterThanOrEqual(1);
+          expect(m.construct.projectile.damage).toBeGreaterThan(0);
+          expect(m.construct.fireEveryTicks).toBeGreaterThan(0);
+        } else if (m.parry) {
+          // parry stances have no outgoing hitbox — the riposte is the payload
+          expect(m.parry.damage, `${m.id} riposte damage`).toBeGreaterThan(0);
+          expect(m.parry.baseKnockback).toBeGreaterThan(0);
+          expect(m.activeTicks, `${m.id} parry window`).toBeGreaterThanOrEqual(10);
         } else {
           expect(m.damage, `${m.id} damage`).toBeGreaterThan(0);
           expect(m.boxW, `${m.id} boxW`).toBeGreaterThan(0);
           expect(m.boxH, `${m.id} boxH`).toBeGreaterThan(0);
-          if (m.angle === "aim") expect(m.reach).toBeGreaterThan(0);
+          if (m.angle === "aim" && !m.radial) expect(m.reach).toBeGreaterThan(0);
         }
         if (typeof m.angle === "number") {
           expect(Math.abs(m.angle)).toBeLessThanOrEqual(90);
@@ -44,6 +60,9 @@ describe("moveset schema", () => {
       }
       expect(c.stats.weight).toBeGreaterThan(0);
       expect(c.stats.jumpCount).toBeGreaterThanOrEqual(2);
+      expect(c.lore.length, `${id} lore`).toBeGreaterThan(40);
+      expect(c.role.length, `${id} role`).toBeGreaterThan(2);
+      expect(c.epithet.length, `${id} epithet`).toBeGreaterThan(2);
     });
   }
 });
@@ -89,7 +108,7 @@ for (const id of CHAR_IDS) {
   describe(`${id} melee moves`, () => {
     for (const slot of SLOTS) {
       const m = c.moves[slot];
-      if (m.kind !== "melee") continue;
+      if (m.kind !== "melee" || m.boxW <= 0) continue; // deploys/stances carry no hitbox
       it(`${m.id} (${slot}): respects startup, hits with exact damage & knockback`, () => {
         const { sim, atk, vic } = duel(id, 0); // placed properly below
         const dist = meleeDistance(atk, vic, m);
@@ -125,6 +144,9 @@ for (const id of CHAR_IDS) {
   const c = CHARACTERS[id];
   const m = c.moves.special;
   if (m.kind !== "projectile") continue;
+  // chargeable specials fire on release and mirror-clones never travel —
+  // both are covered by dedicated tests in mechanics.test.ts
+  if (m.chargeable || m.projectileAtOrigin) continue;
   describe(`${id} projectile special`, () => {
     it(`${m.id}: spawns after startup, carries def, hits at range`, () => {
       const p = m.projectile!;
@@ -230,10 +252,13 @@ describe("roster distinctness", () => {
     }
   });
 
-  it("knight is the only character with no projectile", () => {
+  it("knight is the only character with no ranged threat at all", () => {
+    // hessa fires nothing herself, but her turrets do — the roster's only
+    // truly projectile-less fighter must remain the knight
     for (const id of CHAR_IDS) {
-      const hasProj = SLOTS.some((s) => CHARACTERS[id].moves[s].kind === "projectile");
-      expect(hasProj, id).toBe(id !== "knight");
+      const direct = ALL_SLOTS.some((s) => CHARACTERS[id].moves[s].kind === "projectile");
+      const viaConstruct = ALL_SLOTS.some((s) => CHARACTERS[id].moves[s].construct !== undefined);
+      expect(direct || viaConstruct, id).toBe(id !== "knight");
     }
   });
 
@@ -266,9 +291,38 @@ describe("roster distinctness", () => {
     }
   });
 
-  it("move ids are globally unique", () => {
-    const ids = CHAR_IDS.flatMap((id) => SLOTS.map((s) => CHARACTERS[id].moves[s].id));
+  it("move ids are globally unique (ultimates included)", () => {
+    const ids = CHAR_IDS.flatMap((id) => ALL_SLOTS.map((s) => CHARACTERS[id].moves[s].id));
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("every character has a distinct signature mechanic on special or ultimate", () => {
+    // the mechanic fingerprint: what special+ultimate DO beyond raw hits
+    const fingerprint = (id: CharId): string => {
+      const sp = CHARACTERS[id].moves.special;
+      const ult = CHARACTERS[id].moves.ultimate;
+      const tags: string[] = [];
+      for (const m of [sp, ult]) {
+        if (m.parry) tags.push("parry");
+        if (m.chargeable) tags.push("charge");
+        if (m.teleport) tags.push("teleport");
+        if (m.construct) tags.push("construct");
+        if (m.zone || m.projectile?.zoneOnDeath) tags.push("zone");
+        if (m.burn || m.projectile?.burn) tags.push("burn");
+        if (m.projectile?.sticky) tags.push("trap");
+        if (m.selfDamage) tags.push("selfdamage");
+        if (m.lungeSpeed > 0) tags.push("lunge");
+        if ((m.projectileCount ?? 1) > 1) tags.push("volley");
+        if (m.projectile?.homing) tags.push("homing");
+      }
+      return [...new Set(tags)].sort().join("+");
+    };
+    const prints = CHAR_IDS.map(fingerprint);
+    expect(new Set(prints).size, prints.join(" | ")).toBe(CHAR_IDS.length);
+    // and pyre's kindle is the only stat-level mechanic
+    for (const id of CHAR_IDS) {
+      expect(CHARACTERS[id].stats.kindle !== undefined, id).toBe(id === "pyre");
+    }
   });
 });
 

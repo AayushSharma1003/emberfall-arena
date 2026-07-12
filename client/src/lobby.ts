@@ -25,7 +25,7 @@ export class LobbyScreen {
     this.title = new Text({ text: "EMBERFALL 2: THE ARENA", style: mono(30, 0xffd75a, "900") });
     this.code = new Text({ text: "", style: mono(56, 0xffffff, "900") });
     this.hint = new Text({
-      text: "1-6 choose character  ·  SPACE ready  ·  match starts when everyone is ready",
+      text: "1-9 choose character  ·  SPACE ready  ·  match starts when everyone is ready",
       style: mono(15, 0x9a8ec0),
     });
     this.rosterText = new Text({

@@ -10,15 +10,34 @@
  */
 import { Application } from "pixi.js";
 import {
-  CHARACTERS, CHAR_IDS, DT, INPUT_BATCH, INTERP_DELAY_TICKS,
+  CHARACTERS, CHAR_IDS, DT, INPUT_BATCH, INTERP_DELAY_TICKS, STAGE_INFO,
   Sim, Predictor, Interpolator, makeFighter, stageById, applyFighterSnap,
   type CharId, type Fighter, type InputFrame, type PlayerInfo, type SimEvent,
   type Stage, type TickInput,
 } from "@emberfall/shared";
+import { makeScene, PLATFORM_PALETTES } from "./scenes/index.js";
 import { Keyboard, Mouse, Gamepads } from "./engine/input.js";
-import { GameRenderer, type DrawFighter, type DrawItem, type DrawProj } from "./render.js";
+import {
+  GameRenderer,
+  type DrawConstruct, type DrawFighter, type DrawItem, type DrawProj, type DrawWorld, type DrawZone,
+} from "./render.js";
 import { NetClient } from "./net.js";
 import { LobbyScreen } from "./lobby.js";
+
+/** Visual classification + signature color for a projectile. */
+function projDraw(
+  p: { x: number; y: number; owner: number; armed: boolean; def: { radius: number; sticky?: boolean } },
+  ownerChar: (id: number) => CharId,
+): DrawProj {
+  return {
+    x: p.x,
+    y: p.y,
+    radius: p.def.radius,
+    owner: p.owner,
+    color: CHARACTERS[ownerChar(p.owner)]?.color ?? 0xffd75a,
+    look: p.armed ? (p.def.sticky ? "mine" : "clone") : "shot",
+  };
+}
 
 async function main(): Promise<void> {
   const app = new Application();
@@ -71,12 +90,16 @@ function p1Reticle(src: P1Sources, renderer: GameRenderer, visible: boolean): { 
 // ---------------------------------------------------------------------------
 
 function localMode(app: Application, params: URLSearchParams): void {
-  const stage = stageById(params.get("stage")).make();
+  const picked = stageById(params.get("stage"));
+  const stage = picked.make();
   const sim = new Sim(stage);
   sim.addFighter("knight");
   sim.addFighter("ogre").facing = -1;
 
   const renderer = new GameRenderer(app, stage);
+  const theme = STAGE_INFO[picked.id].theme;
+  renderer.platformPalette = PLATFORM_PALETTES[theme];
+  renderer.scene = makeScene(theme, stage, { under: renderer.sceneUnder, over: renderer.sceneOver });
   renderer.setHelp([
     "P1  WASD · mouse aim · LMB light · RMB heavy · F special · Shift dash        1-6 P1 char · 9/0 P2 char",
     "P2  Arrows move/aim · , light · . heavy · RShift special · / dash            H hitboxes · R reset · C crosshair",
@@ -106,9 +129,9 @@ function localMode(app: Application, params: URLSearchParams): void {
     if (e.code === "KeyC") crosshairVisible = !crosshairVisible;
     if (e.code === "KeyH") renderer.showHitboxes = !renderer.showHitboxes;
     if (e.code === "KeyR") resetMatch();
-    const digit = e.code.match(/^Digit([1-6])$/);
+    const digit = e.code.match(/^Digit([1-9])$/);
     if (digit) sim.setCharacter(0, CHAR_IDS[Number(digit[1]) - 1]);
-    if (e.code === "Digit9" || e.code === "Digit0") {
+    if (e.code === "Digit0" || e.code === "Minus") {
       const cur = CHAR_IDS.indexOf(sim.fighters[1].charId);
       const next = (cur + (e.code === "Digit0" ? 1 : CHAR_IDS.length - 1)) % CHAR_IDS.length;
       sim.setCharacter(1, CHAR_IDS[next]);
@@ -146,13 +169,23 @@ function localMode(app: Application, params: URLSearchParams): void {
       rx: prevPos[i].x + (f.x - prevPos[i].x) * alpha,
       ry: prevPos[i].y + (f.y - prevPos[i].y) * alpha,
     }));
-    const projs: DrawProj[] = sim.projectiles.map((p) => ({ x: p.x, y: p.y, radius: p.def.radius, owner: p.owner }));
-    const worldItems: DrawItem[] = sim.items;
+    const ownerChar = (id: number): CharId => sim.fighters[id]?.charId ?? "knight";
+    const world: DrawWorld = {
+      fighters: items,
+      projs: sim.projectiles.map((p) => projDraw(p, ownerChar)),
+      constructs: sim.constructs.map((c): DrawConstruct => ({
+        x: c.x, y: c.y, kindId: c.def.kindId, facing: c.facing,
+        hpT: Math.max(0, c.hp / c.def.hp), owner: c.owner,
+      })),
+      zones: sim.zones.map((z): DrawZone => ({ x: z.x, y: z.y, radius: z.radius, owner: z.owner })),
+      items: sim.items,
+      tick: sim.tick,
+    };
 
     const alive = sim.fighters.filter((f) => f.stocks > 0);
     renderer.setBanner(alive.length === 1 ? `P${alive[0].id + 1} WINS` : "", alive.length === 1 ? "R to rematch" : "");
 
-    renderer.draw(items, projs, worldItems, frameDt, p1Reticle(src, renderer, crosshairVisible), sim.hitstop > 0);
+    renderer.draw(world, frameDt, p1Reticle(src, renderer, crosshairVisible), sim.hitstop > 0);
   });
 }
 
@@ -202,7 +235,7 @@ function onlineMode(app: Application, params: URLSearchParams): void {
     if (e.code === "KeyC") crosshairVisible = !crosshairVisible;
     if (e.code === "KeyH" && renderer) renderer.showHitboxes = !renderer.showHitboxes;
     if (!lobby.visible) return;
-    const digit = e.code.match(/^Digit([1-6])$/);
+    const digit = e.code.match(/^Digit([1-9])$/);
     if (digit) {
       net.send({ t: "setChar", charId: CHAR_IDS[Number(digit[1]) - 1] });
       myReady = false;
@@ -233,7 +266,10 @@ function onlineMode(app: Application, params: URLSearchParams): void {
         stageObj = picked.make();
         if (!renderer) {
           renderer = new GameRenderer(app, stageObj);
-          renderer.setHelp("ONLINE  ·  WASD move · mouse aim · LMB light · RMB heavy · F special · Shift dash · H hitboxes · C crosshair");
+          const theme = STAGE_INFO[picked.id].theme;
+          renderer.platformPalette = PLATFORM_PALETTES[theme];
+          renderer.scene = makeScene(theme, stageObj, { under: renderer.sceneUnder, over: renderer.sceneOver });
+          renderer.setHelp("ONLINE  ·  WASD move · mouse aim · LMB light · RMB heavy · F special · Q ultimate · Shift dash · H hitboxes · C crosshair");
           app.stage.addChild(lobby.root); // keep the lobby overlay on top
         }
         lobby.visible = true;
@@ -326,6 +362,7 @@ function onlineMode(app: Application, params: URLSearchParams): void {
     const sample = interp.sample(renderTick);
     const items: DrawFighter[] = [];
     const projs: DrawProj[] = [];
+    const ownerChar = (id: number): CharId => predictor!.sim.fighters[id]?.charId ?? "knight";
     for (let i = 0; i < predictor.sim.fighters.length; i++) {
       if (i === myId) {
         items.push({
@@ -341,14 +378,27 @@ function onlineMode(app: Application, params: URLSearchParams): void {
       }
     }
     for (const p of predictor.sim.projectiles) {
-      if (p.owner === myId) projs.push({ x: p.x, y: p.y, radius: p.def.radius, owner: p.owner });
+      if (p.owner === myId) projs.push(projDraw(p, ownerChar));
     }
     for (const p of sample?.projectiles ?? []) {
-      if (p.owner !== myId) projs.push({ x: p.x, y: p.y, radius: p.def.radius, owner: p.owner });
+      if (p.owner !== myId) projs.push(projDraw(p, ownerChar));
     }
+    const constructsSrc = sample?.constructs ?? predictor.sim.constructs;
+    const zonesSrc = sample?.zones ?? predictor.sim.zones;
     const worldItems: DrawItem[] = sample?.items ?? predictor.sim.items;
+    const world: DrawWorld = {
+      fighters: items,
+      projs,
+      constructs: constructsSrc.map((c): DrawConstruct => ({
+        x: c.x, y: c.y, kindId: c.def.kindId, facing: c.facing,
+        hpT: Math.max(0, c.hp / c.def.hp), owner: c.owner,
+      })),
+      zones: zonesSrc.map((z): DrawZone => ({ x: z.x, y: z.y, radius: z.radius, owner: z.owner })),
+      items: worldItems,
+      tick: Math.max(0, Math.round(renderTick)),
+    };
 
-    renderer.draw(items, projs, worldItems, frameDt, p1Reticle(src, renderer, crosshairVisible), predictor.sim.hitstop > 0);
+    renderer.draw(world, frameDt, p1Reticle(src, renderer, crosshairVisible), predictor.sim.hitstop > 0);
   });
 }
 
