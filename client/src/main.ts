@@ -19,8 +19,9 @@ import {
 } from "@emberfall/shared";
 import { makeScene, PLATFORM_PALETTES } from "./scenes/index.js";
 import { Keyboard, Mouse, Gamepads } from "./engine/input.js";
+import { buildP1Input, p1Reticle, type P1Sources } from "./engine/localinput.js";
 import {
-  GameRenderer,
+  GameRenderer, projDraw,
   type DrawConstruct, type DrawFighter, type DrawItem, type DrawProj, type DrawWorld, type DrawZone,
 } from "./render.js";
 import { NetClient } from "./net.js";
@@ -32,21 +33,8 @@ import { MenuScreen } from "./ui/menu.js";
 import { CharSelectScreen } from "./ui/charselect.js";
 import { MapSelectScreen } from "./ui/mapselect.js";
 import { PlaceholderScreen } from "./ui/placeholder.js";
-
-/** Visual classification + signature color for a projectile. */
-function projDraw(
-  p: { x: number; y: number; owner: number; armed: boolean; def: { radius: number; sticky?: boolean } },
-  ownerChar: (id: number) => CharId,
-): DrawProj {
-  return {
-    x: p.x,
-    y: p.y,
-    radius: p.def.radius,
-    owner: p.owner,
-    color: CHARACTERS[ownerChar(p.owner)]?.color ?? 0xffd75a,
-    look: p.armed ? (p.def.sticky ? "mine" : "clone") : "shot",
-  };
-}
+import { MatchScreen } from "./ui/match.js";
+import { ResultsScreen } from "./ui/results.js";
 
 async function main(): Promise<void> {
   const app = new Application();
@@ -80,9 +68,9 @@ function menuMode(app: Application): void {
     menu: new MenuScreen(ctx),
     charselect: new CharSelectScreen(ctx),
     mapselect: new MapSelectScreen(ctx),
-    loading: new PlaceholderScreen(ctx, "loading", "THE EMBERS STIR…", null, { to: "match", afterS: 0.8 }),
-    match: new PlaceholderScreen(ctx, "match", "THE MATCH", "menu"),
-    results: new PlaceholderScreen(ctx, "results", "THE RECKONING", "menu"),
+    loading: new PlaceholderScreen(ctx, "loading", "THE EMBERS STIR…", null, { to: "match", afterS: 0.7 }),
+    match: new MatchScreen(ctx),
+    results: new ResultsScreen(ctx),
   };
   const host = new ScreenHost(views, flow);
   host.boot();
@@ -100,33 +88,6 @@ function menuMode(app: Application): void {
     }
     app.stage.addChild(overlay);
   });
-}
-
-// ---------------------------------------------------------------------------
-// shared input assembly
-// ---------------------------------------------------------------------------
-
-interface P1Sources { keyboard: Keyboard; mouse: Mouse; gamepads: Gamepads; }
-
-function buildP1Input(src: P1Sources, renderer: GameRenderer, me: { x: number; y: number; h: number }): InputFrame {
-  const [k1] = src.keyboard.sample();
-  const pad1 = src.gamepads.sample(0);
-  let aimX = 0, aimY = 0;
-  if (pad1.aimX !== 0 || pad1.aimY !== 0) {
-    aimX = pad1.aimX; aimY = pad1.aimY;
-  } else {
-    const mw = renderer.camera.screenToWorld(src.mouse.screenX, src.mouse.screenY);
-    aimX = mw.x - me.x;
-    aimY = mw.y - (me.y - me.h / 2);
-  }
-  return { buttons: k1 | src.mouse.buttonsMask() | pad1.buttons, aimX, aimY };
-}
-
-function p1Reticle(src: P1Sources, renderer: GameRenderer, visible: boolean): { x: number; y: number } | null {
-  if (!visible) return null;
-  const pad = src.gamepads.sample(0);
-  if (pad.aimX !== 0 || pad.aimY !== 0) return null;
-  return renderer.camera.screenToWorld(src.mouse.screenX, src.mouse.screenY);
 }
 
 // ---------------------------------------------------------------------------

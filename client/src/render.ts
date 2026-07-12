@@ -23,6 +23,21 @@ import type { PlatformPalette, StageScene } from "./scenes/index.js";
 export const COLORS = [0xe8503a, 0x3a9de8, 0xe8b83a, 0x9d3ae8]; // P1..P4
 export const TEAM_COLORS = [0xe8503a, 0x3a9de8]; // warm vs cool
 
+/** Visual classification + signature color for a projectile (shared by all modes). */
+export function projDraw(
+  p: { x: number; y: number; owner: number; armed: boolean; def: { radius: number; sticky?: boolean } },
+  ownerChar: (id: number) => import("@emberfall/shared").CharId,
+): DrawProj {
+  return {
+    x: p.x,
+    y: p.y,
+    radius: p.def.radius,
+    owner: p.owner,
+    color: CHARACTERS[ownerChar(p.owner)]?.color ?? 0xffd75a,
+    look: p.armed ? (p.def.sticky ? "mine" : "clone") : "shot",
+  };
+}
+
 export interface DrawFighter {
   f: Fighter;
   rx: number;
