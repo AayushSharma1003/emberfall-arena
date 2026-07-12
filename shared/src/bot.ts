@@ -47,17 +47,16 @@ function prng(seed: number): () => number {
 }
 
 /**
- * Zoners keep their distance; everyone else wants reach-range. Archetype
- * comes from the character's ROLE — a rushdown with a pocket firecracker
- * (Snik) still fights in your face.
+ * Zoners keep their distance; melee fighters want reach-range. Archetype is
+ * the character's PRIMARY class (attackType) — the same field that decides
+ * whether the primary is a swing or a shot, so the bot and the sim never
+ * disagree about how a fighter fights. Fast shooters play further out.
  */
-const RANGED_ROLES = new Set(["Spellweaver", "Trapper", "Elementalist", "Forgewright"]);
-
 function preferredRange(f: Fighter): number {
-  if (!RANGED_ROLES.has(CHARACTERS[f.charId].role)) {
+  if (CHARACTERS[f.charId].attackType !== "ranged") {
     return Math.max(60, f.moves.light.reach * 0.9);
   }
-  const speed = f.moves.special.projectile?.speed ?? 0;
+  const speed = f.moves.light.projectile?.speed ?? f.moves.special.projectile?.speed ?? 0;
   return speed > 1200 ? 560 : 440;
 }
 
@@ -197,12 +196,20 @@ export class BotController {
     // --- offense ---
     // committing to attack frames while airborne near an edge is how bots
     // die under the stage: specials only from the ground, aerials only in range
+    const isRanged = CHARACTERS[me.charId].attackType === "ranged";
     const canMelee = dist < meleeReach && Math.abs(dy) < 110;
     const attackRoll = this.rand();
     if (me.ult >= ULT_TUNING.max && me.grounded && (dist < 420 || (range > 300 && attackRoll < 0.5))) {
       buttons |= Btn.Ultimate;
-    } else if (canMelee && attackRoll < 0.45 + this.params.aggression * 0.4) {
-      // heavy for kill confirms on damaged targets, light otherwise
+    } else if (isRanged && dist > meleeReach && dist < range + 260 && Math.abs(aimY) < 0.85 &&
+               attackRoll < 0.55 + this.params.aggression * 0.3) {
+      // ranged primary: the light attack IS a projectile — poke from range
+      buttons |= Btn.Light;
+    } else if (isRanged && canMelee && target.damage > 55 && attackRoll < 0.4) {
+      // a ranged fighter's melee heavy is a "get off me" button up close
+      buttons |= Btn.Heavy;
+    } else if (!isRanged && canMelee && attackRoll < 0.45 + this.params.aggression * 0.4) {
+      // melee: heavy for kill confirms on damaged targets, light otherwise
       buttons |= target.damage > 85 && attackRoll < 0.55 ? Btn.Heavy : Btn.Light;
     } else if (
       me.grounded && me.specialCooldown === 0 &&

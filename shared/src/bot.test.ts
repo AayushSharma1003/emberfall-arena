@@ -8,7 +8,7 @@ import { BotController, botLevel } from "./bot.js";
 import { Sim, ULT_TUNING, emberfallKeep } from "./sim.js";
 import { moltenSpan } from "./stages.js";
 import { serializeSim } from "./snapshot.js";
-import { N, place } from "./testutil.js";
+import { N, place, Btn } from "./testutil.js";
 import type { CharId } from "./characters.js";
 
 function botMatch(a: CharId, b: CharId, seed = 5): { sim: Sim; bots: BotController[] } {
@@ -179,5 +179,43 @@ describe("full-match integrity", () => {
     const total = sim.fighters[0].damage + sim.fighters[1].damage +
       (3 - sim.fighters[0].stocks + (3 - sim.fighters[1].stocks)) * 100;
     expect(total).toBeGreaterThan(40);
+  });
+});
+
+describe("attackType-aware engagement", () => {
+  const distTo = (sim: Sim): number =>
+    Math.hypot(sim.fighters[1].x - sim.fighters[0].x, sim.fighters[1].y - sim.fighters[0].y);
+
+  it("a ranged bot (mage) fires its PRIMARY from beyond melee reach", () => {
+    const { sim, bots } = botMatch("mage", "ogre", 4);
+    place(sim.fighters[0], 700, 700);
+    place(sim.fighters[1], 1150, 700); // passive dummy, well out of arm's reach
+    let primaryAtRange = false;
+    for (let t = 0; t < 900; t++) {
+      const input = bots[0].tick();
+      if ((input.buttons & Btn.Light) && distTo(sim) > 150) primaryAtRange = true;
+      sim.step([input, N]);
+    }
+    expect(primaryAtRange).toBe(true); // it shoots the primary instead of running in to swing
+    expect(sim.fighters[1].damage).toBeGreaterThan(0); // and connects from range
+  });
+
+  it("a melee bot (knight) only swings up close, never at open range", () => {
+    const { sim, bots } = botMatch("knight", "ogre", 4);
+    place(sim.fighters[0], 700, 700);
+    place(sim.fighters[1], 1100, 700);
+    let swungClose = false;
+    let swungFar = false;
+    for (let t = 0; t < 700; t++) {
+      const input = bots[0].tick();
+      if (input.buttons & (Btn.Light | Btn.Heavy)) {
+        if (distTo(sim) < 160) swungClose = true;
+        else if (distTo(sim) > 260) swungFar = true;
+      }
+      sim.step([input, N]);
+      if (sim.projectiles.some((p) => p.owner === 0)) swungFar = true; // knight has no shot to fire
+    }
+    expect(swungClose).toBe(true);
+    expect(swungFar).toBe(false);
   });
 });

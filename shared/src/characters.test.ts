@@ -229,6 +229,89 @@ describe("aerial slot", () => {
   });
 });
 
+// ---------- attackType: melee vs ranged primary ----------
+describe("attackType (primary attack class)", () => {
+  it("the roster splits into the intended melee and ranged primaries", () => {
+    const melee = CHAR_IDS.filter((id) => CHARACTERS[id].attackType === "melee").sort();
+    const ranged = CHAR_IDS.filter((id) => CHARACTERS[id].attackType === "ranged").sort();
+    expect(melee).toEqual(["goblin", "knight", "ogre", "pyre", "sable"]);
+    expect(ranged).toEqual(["demon_queen", "hessa", "mage", "ranger"]);
+  });
+
+  it("attackType is consistent with the primary (light + aerial) move kind", () => {
+    for (const id of CHAR_IDS) {
+      const c = CHARACTERS[id];
+      const wantKind = c.attackType === "ranged" ? "projectile" : "melee";
+      expect(c.moves.light.kind, `${id} light`).toBe(wantKind);
+      expect(c.moves.aerial.kind, `${id} aerial`).toBe(wantKind);
+    }
+  });
+
+  it("no two ranged primaries are the same projectile", () => {
+    const RANGED = CHAR_IDS.filter((id) => CHARACTERS[id].attackType === "ranged");
+    const sig = (id: CharId): string => {
+      const p = CHARACTERS[id].moves.light.projectile!;
+      return [p.damage, p.speed, p.radius, p.gravityScale, p.homing ?? 0, p.pierce ?? 0,
+        p.zoneOnDeath ? 1 : 0, p.burn ? 1 : 0].join(":");
+    };
+    const sigs = RANGED.map(sig);
+    expect(new Set(sigs).size, sigs.join(" | ")).toBe(RANGED.length);
+    // and each differs on more than one axis from every other (not palette swaps)
+    for (let i = 0; i < RANGED.length; i++) {
+      for (let j = i + 1; j < RANGED.length; j++) {
+        const a = sig(RANGED[i]).split(":");
+        const b = sig(RANGED[j]).split(":");
+        const diffs = a.filter((v, k) => v !== b[k]).length;
+        expect(diffs, `${RANGED[i]} vs ${RANGED[j]}`).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
+
+  it("each ranged primary carries its documented stats and behavior", () => {
+    const doc: Record<string, { speed: number; damage: number; gravityScale: number; homing?: number; pierce?: number; zone?: boolean }> = {
+      mage: { speed: 1450, damage: 4, gravityScale: 0 },
+      ranger: { speed: 1250, damage: 6, gravityScale: 0.35, pierce: 1 },
+      hessa: { speed: 700, damage: 4, gravityScale: 0, homing: 2.0 },
+      demon_queen: { speed: 950, damage: 5, gravityScale: 0.5, zone: true },
+    };
+    for (const [id, d] of Object.entries(doc)) {
+      const p = CHARACTERS[id as CharId].moves.light.projectile!;
+      expect(p.speed, `${id} speed`).toBe(d.speed);
+      expect(p.damage, `${id} damage`).toBe(d.damage);
+      expect(p.gravityScale, `${id} gravity`).toBe(d.gravityScale);
+      expect(p.homing ?? undefined, `${id} homing`).toBe(d.homing);
+      expect(p.pierce ?? undefined, `${id} pierce`).toBe(d.pierce);
+      expect(Boolean(p.zoneOnDeath), `${id} zone`).toBe(Boolean(d.zone));
+    }
+  });
+
+  it("a ranged primary press spawns a projectile and creates no melee hitbox", () => {
+    for (const id of CHAR_IDS) {
+      if (CHARACTERS[id].attackType !== "ranged") continue;
+      const { sim, atk } = duel(id, 500);
+      const m = CHARACTERS[id].moves.light;
+      expect(m.boxW, `${id} primary has no hitbox`).toBe(0); // structural: resolveMelee skips it
+      steps(sim, 1, [frame(Btn.Light, 1, 0)]);
+      expect(atk.attack?.id).toBe(m.id);
+      expect(atk.attack?.kind).toBe("projectile");
+      steps(sim, m.startupTicks); // reach + pass the first active tick
+      expect(sim.projectiles.length, `${id} fired a shot`).toBe(1);
+    }
+  });
+
+  it("a melee primary press creates a hitbox and spawns no projectile", () => {
+    for (const id of CHAR_IDS) {
+      if (CHARACTERS[id].attackType !== "melee") continue;
+      const { sim, atk } = duel(id, 90);
+      const m = CHARACTERS[id].moves.light;
+      steps(sim, 1, [frame(Btn.Light, 1, 0)]);
+      expect(atk.attack?.kind).toBe("melee");
+      steps(sim, m.startupTicks + m.activeTicks);
+      expect(sim.projectiles.length, `${id} made no projectile`).toBe(0);
+    }
+  });
+});
+
 // ---------- roster distinctness ----------
 describe("roster distinctness", () => {
   it("weights span featherweight to superheavy, all different", () => {

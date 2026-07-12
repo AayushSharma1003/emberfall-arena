@@ -16,9 +16,14 @@ const duration = (m: MoveDef): number => m.startupTicks + m.activeTicks + m.reco
 const kbAt = (m: MoveDef, victimDamage: number): number =>
   m.baseKnockback + (victimDamage + m.damage) * m.kbGrowth;
 
+const MELEE = CHAR_IDS.filter((id) => CHARACTERS[id].attackType === "melee");
+const RANGED = CHAR_IDS.filter((id) => CHARACTERS[id].attackType === "ranged");
+
 describe("balance envelopes", () => {
-  it("light-attack DPS sits in a tight band (no jab-spam dominance)", () => {
-    const dps = CHAR_IDS.map((id) => {
+  it("melee light-attack DPS sits in a tight band (no jab-spam dominance)", () => {
+    // Only melee primaries are jab-spam candidates; ranged primaries are shots
+    // and trade DPS for range/utility (their own envelope below).
+    const dps = MELEE.map((id) => {
       const m = CHARACTERS[id].moves.light;
       return { id, dps: (m.damage / duration(m)) * 60 };
     });
@@ -28,6 +33,22 @@ describe("balance envelopes", () => {
     }
     const vals = dps.map((d) => d.dps);
     expect(Math.max(...vals) / Math.min(...vals)).toBeLessThan(1.35);
+  });
+
+  it("ranged primary DPS is bounded, and lower than melee jab-spam", () => {
+    // A ranged primary fires its projectile every press; "DPS" = shot damage
+    // over the move's own duration (fire rate). Homing/utility shots sit low.
+    const dps = RANGED.map((id) => {
+      const m = CHARACTERS[id].moves.light;
+      expect(m.kind, `${id} primary is a projectile`).toBe("projectile");
+      return { id, dps: (m.projectile!.damage / duration(m)) * 60 };
+    });
+    for (const { id, dps: v } of dps) {
+      expect(v, `${id} ranged DPS`).toBeGreaterThan(10);
+      expect(v, `${id} ranged DPS`).toBeLessThan(28);
+    }
+    const vals = dps.map((d) => d.dps);
+    expect(Math.max(...vals) / Math.min(...vals), "ranged DPS spread").toBeLessThan(2.2);
   });
 
   it("heavy reward scales with risk: slower startups earn bigger knockback", () => {
@@ -58,9 +79,12 @@ describe("balance envelopes", () => {
   it("projectile damage never exceeds melee-heavy damage for the same character", () => {
     for (const id of CHAR_IDS) {
       const c = CHARACTERS[id];
+      const heavyDmg = c.moves.heavy.damage || c.moves.heavy.projectile?.damage || Infinity;
       const proj = c.moves.special.projectile;
-      if (!proj) continue;
-      expect(proj.damage, `${id} projectile vs heavy`).toBeLessThan(c.moves.heavy.damage);
+      if (proj) expect(proj.damage, `${id} special vs heavy`).toBeLessThan(heavyDmg);
+      // a ranged primary is a spammable poke — it must stay under the heavy too
+      const primary = c.moves.light.projectile;
+      if (primary) expect(primary.damage, `${id} primary vs heavy`).toBeLessThan(heavyDmg);
     }
   });
 

@@ -50,6 +50,8 @@ export interface ProjectileDef {
   hitstunBonus?: number;
   /** Turn rate (radians/s) toward the nearest enemy. */
   homing?: number;
+  /** Passes through this many enemies before dying (0/undefined = dies on first hit). Each target is hit at most once. */
+  pierce?: number;
   /** Lands on a platform and arms as a mine instead of dying. */
   sticky?: boolean;
   /** Armed mines detonate when an enemy is within this radius. */
@@ -199,6 +201,15 @@ export interface CharacterDef {
   tagline: string;
   /** Archetype label for the select screen ("Duelist", "Trickster", …). */
   role: string;
+  /**
+   * Primary-attack class. Governs light + aerial (the primary): "melee" =
+   * short-range hitbox swing; "ranged" = fires a projectile every press, no
+   * melee swing. Heavy/special/ultimate are typed per-move (MoveDef.kind), so
+   * a ranged fighter can still keep a melee "get off me" heavy. Read by the
+   * sim only via move.kind (kept consistent by a schema test), and by the bot,
+   * rig, and select screen directly.
+   */
+  attackType: "melee" | "ranged";
   /** A few sentences of Emberfall lore for the select screen. */
   lore: string;
   stats: CharacterStats;
@@ -219,6 +230,7 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
     epithet: "the Emberguard",
     color: 0xc9cdd6,
     role: "Duelist",
+    attackType: "melee",
     tagline: "The oath outlived the order.",
     lore:
       "The last sworn shield of the Emberguard. He held the Keep's gate alone " +
@@ -263,6 +275,7 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
     epithet: "the Ashweaver",
     color: 0x8a5ae8,
     role: "Spellweaver",
+    attackType: "ranged",
     tagline: "Hold the spark. Let it sing.",
     lore:
       "She weaves veilfire — the light ash gives off when it remembers being " +
@@ -270,20 +283,24 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
       "now the flame recites them back, one bolt at a time.",
     stats: { weight: 0.85, jumpCount: 2, width: 66, height: 108, speedMult: 0.88, jumpMult: 1.0, fallMult: 0.8 },
     moves: {
+      // Ranged primary: a fast, dead-straight arcane bolt. Small and cheap —
+      // the spammable poke that keeps you at staff range. (cf. her chargeable
+      // homing star special — different projectile entirely.)
       light: move({
-        id: "arc_spark", damage: 5, baseKnockback: 300, kbGrowth: 8,
-        startupTicks: 3, activeTicks: 4, recoveryTicks: 8, hitstop: 3,
-        reach: 70, boxW: 80, boxH: 80,
+        id: "arc_spark", kind: "projectile", damage: 0, baseKnockback: 0, kbGrowth: 0,
+        startupTicks: 4, activeTicks: 1, recoveryTicks: 7, hitstop: 0,
+        projectile: { speed: 1450, damage: 4, baseKnockback: 210, kbGrowth: 8, radius: 9, gravityScale: 0, lifeTicks: 60, hitstop: 2 },
       }),
       heavy: move({
         id: "nova_burst", damage: 13, baseKnockback: 700, kbGrowth: 18,
         angle: 60, startupTicks: 16, activeTicks: 5, recoveryTicks: 20, hitstop: 9, heavy: true,
         offsetX: 0, offsetY: -10, boxW: 220, boxH: 160, // radial blast centered on self
       }),
+      // Airborne primary fires the same bolt (a ranged fighter never swings).
       aerial: move({
-        id: "star_sweep", damage: 7, baseKnockback: 340, kbGrowth: 11,
-        startupTicks: 5, activeTicks: 6, recoveryTicks: 9, hitstop: 4,
-        reach: 80, boxW: 95, boxH: 95,
+        id: "falling_star", kind: "projectile", damage: 0, baseKnockback: 0, kbGrowth: 0,
+        startupTicks: 5, activeTicks: 1, recoveryTicks: 8, hitstop: 0,
+        projectile: { speed: 1450, damage: 4, baseKnockback: 210, kbGrowth: 8, radius: 9, gravityScale: 0, lifeTicks: 60, hitstop: 2 },
       }),
       // Chargeable: tap = the familiar quick bolt; a full 50-tick charge fires
       // a slow HOMING star instead. Rooted while charging.
@@ -308,6 +325,7 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
     epithet: "of the Char-Woods",
     color: 0x3aa85e,
     role: "Trapper",
+    attackType: "ranged",
     tagline: "Step anywhere. See what happens.",
     lore:
       "Warden of the Char-Woods, where nothing green survives and everything " +
@@ -315,20 +333,26 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
       "walked far enough. The arrow that follows is not.",
     stats: { weight: 0.9, jumpCount: 2, width: 64, height: 104, speedMult: 1.15, jumpMult: 1.05, fallMult: 1.0 },
     moves: {
+      // Ranged primary: a thin arrow on a shallow arc that PIERCES its first
+      // target — the projectile specialist's bread and butter. Higher damage
+      // than the mage's bolt, but it drops over distance. (cf. her long, fast,
+      // committal Longshot special.)
       light: move({
-        id: "knife_flick", damage: 5, baseKnockback: 290, kbGrowth: 8,
-        startupTicks: 3, activeTicks: 4, recoveryTicks: 6, hitstop: 3,
-        reach: 70, boxW: 80, boxH: 75,
+        id: "quick_shot", kind: "projectile", damage: 0, baseKnockback: 0, kbGrowth: 0,
+        startupTicks: 5, activeTicks: 1, recoveryTicks: 9, hitstop: 0,
+        projectile: { speed: 1250, damage: 6, baseKnockback: 240, kbGrowth: 10, radius: 8, gravityScale: 0.35, lifeTicks: 80, hitstop: 3, pierce: 1 },
       }),
+      // Melee "get off me" heavy: a ranged fighter keeps one close-range panic
+      // button so pressure doesn't auto-win against her.
       heavy: move({
         id: "boot_kick", damage: 11, baseKnockback: 560, kbGrowth: 14,
         angle: 35, startupTicks: 8, activeTicks: 5, recoveryTicks: 13, hitstop: 6, heavy: true,
         offsetX: 60, offsetY: -10, boxW: 95, boxH: 90,
       }),
       aerial: move({
-        id: "aero_slash", damage: 6, baseKnockback: 320, kbGrowth: 9,
-        startupTicks: 4, activeTicks: 5, recoveryTicks: 7, hitstop: 3,
-        reach: 78, boxW: 88, boxH: 85,
+        id: "falling_shot", kind: "projectile", damage: 0, baseKnockback: 0, kbGrowth: 0,
+        startupTicks: 5, activeTicks: 1, recoveryTicks: 8, hitstop: 0,
+        projectile: { speed: 1250, damage: 6, baseKnockback: 240, kbGrowth: 10, radius: 8, gravityScale: 0.35, lifeTicks: 80, hitstop: 3, pierce: 1 },
       }),
       special: move({
         id: "longshot_arrow", damage: 0, baseKnockback: 0, kbGrowth: 0, kind: "projectile",
@@ -352,6 +376,7 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
     epithet: "the Powder-Rat",
     color: 0x9de83a,
     role: "Rushdown",
+    attackType: "melee",
     tagline: "Three jumps, zero manners.",
     lore:
       "Stole powder from the Kiln-priests, stole the match from the Watch, " +
@@ -394,6 +419,7 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
     epithet: "Kiln-Breaker",
     color: 0xb8763a,
     role: "Bruiser",
+    attackType: "melee",
     tagline: "One swing ends the conversation.",
     lore:
       "He broke the Great Kiln with the hammer they forged inside it, then " +
@@ -437,6 +463,7 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
     epithet: "Queen of Cinders",
     color: 0xe83a9d,
     role: "Elementalist",
+    attackType: "ranged",
     tagline: "Everything burns politely, eventually.",
     lore:
       "The Ash Court kneels to the queen who out-burned the fire that came " +
@@ -444,10 +471,16 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
       "subjects, and like all her subjects they cling and they consume.",
     stats: { weight: 1.15, jumpCount: 2, width: 72, height: 116, speedMult: 1.0, jumpMult: 1.05, fallMult: 0.9 },
     moves: {
+      // Ranged primary: a fat, arcing fire glob that ignites on hit and leaves
+      // a SMALL, brief cinder patch where it lands — area denial in miniature.
+      // (cf. Soulfire, her fast straight bolt with a big lasting pool.)
       light: move({
-        id: "claw_rake", damage: 6, baseKnockback: 310, kbGrowth: 9,
-        startupTicks: 4, activeTicks: 5, recoveryTicks: 8, hitstop: 4,
-        reach: 80, boxW: 90, boxH: 85,
+        id: "ember_glob", kind: "projectile", damage: 0, baseKnockback: 0, kbGrowth: 0,
+        startupTicks: 6, activeTicks: 1, recoveryTicks: 9, hitstop: 0,
+        projectile: {
+          speed: 950, damage: 5, baseKnockback: 220, kbGrowth: 9, radius: 15, gravityScale: 0.5, lifeTicks: 70, hitstop: 4,
+          burn: { ticks: 45 }, zoneOnDeath: { radius: 60, lifeTicks: 60, burnTicks: 45 },
+        },
       }),
       // Sets the victim alight: hellfire clings for 1.5s of chip damage.
       heavy: move({
@@ -457,9 +490,12 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
         burn: { ticks: 90 },
       }),
       aerial: move({
-        id: "wing_scythe", damage: 9, baseKnockback: 400, kbGrowth: 12,
-        startupTicks: 6, activeTicks: 7, recoveryTicks: 10, hitstop: 6,
-        reach: 90, boxW: 105, boxH: 100,
+        id: "air_glob", kind: "projectile", damage: 0, baseKnockback: 0, kbGrowth: 0,
+        startupTicks: 6, activeTicks: 1, recoveryTicks: 9, hitstop: 0,
+        projectile: {
+          speed: 950, damage: 5, baseKnockback: 220, kbGrowth: 9, radius: 15, gravityScale: 0.5, lifeTicks: 70, hitstop: 4,
+          burn: { ticks: 45 }, zoneOnDeath: { radius: 60, lifeTicks: 60, burnTicks: 45 },
+        },
       }),
       // Soulfire ignites on hit AND leaves a cinder pool where it dies —
       // her zoning is area denial, not raw projectile damage.
@@ -488,6 +524,7 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
     epithet: "the Hollow Veil",
     color: 0x9fb8d8,
     role: "Trickster",
+    attackType: "melee",
     tagline: "You saw me. That was the mistake.",
     lore:
       "Something that stayed behind when its body walked away. The Veil " +
@@ -534,6 +571,7 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
     epithet: "the Iron-Mother",
     color: 0xcf8a45,
     role: "Forgewright",
+    attackType: "ranged",
     tagline: "My children are always hungry.",
     lore:
       "Mother of the foundry-line, midwife to a hundred iron children. Her " +
@@ -541,20 +579,24 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
       "not cry, and they do not miss.",
     stats: { weight: 1.2, jumpCount: 2, width: 78, height: 112, speedMult: 0.85, jumpMult: 0.92, fallMult: 1.05 },
     moves: {
+      // Ranged primary: a slow iron wisp that HOMES on the nearest enemy. Low
+      // damage and a lazy fire rate — it's chip and area pressure, not a poke.
+      // The summoner's smallest child. (cf. her Little Kiln turret special.)
       light: move({
-        id: "hammer_tap", damage: 8, baseKnockback: 360, kbGrowth: 9,
-        startupTicks: 6, activeTicks: 4, recoveryTicks: 11, hitstop: 5,
-        reach: 85, boxW: 95, boxH: 85,
+        id: "conjure_wisp", kind: "projectile", damage: 0, baseKnockback: 0, kbGrowth: 0,
+        startupTicks: 7, activeTicks: 1, recoveryTicks: 10, hitstop: 0,
+        projectile: { speed: 700, damage: 4, baseKnockback: 190, kbGrowth: 7, radius: 12, gravityScale: 0, lifeTicks: 110, hitstop: 3, homing: 2.0 },
       }),
+      // Melee "get off me" heavy: the forge-hammer still swings when they close.
       heavy: move({
         id: "smelters_swing", damage: 14, baseKnockback: 640, kbGrowth: 16,
         angle: 40, startupTicks: 13, activeTicks: 6, recoveryTicks: 19, hitstop: 9, heavy: true,
         offsetX: 62, offsetY: -8, boxW: 110, boxH: 100,
       }),
       aerial: move({
-        id: "slag_sweep", damage: 8, baseKnockback: 380, kbGrowth: 11,
-        startupTicks: 6, activeTicks: 6, recoveryTicks: 11, hitstop: 5,
-        reach: 82, boxW: 95, boxH: 90,
+        id: "air_wisp", kind: "projectile", damage: 0, baseKnockback: 0, kbGrowth: 0,
+        startupTicks: 7, activeTicks: 1, recoveryTicks: 10, hitstop: 0,
+        projectile: { speed: 700, damage: 4, baseKnockback: 190, kbGrowth: 7, radius: 12, gravityScale: 0, lifeTicks: 110, hitstop: 3, homing: 2.0 },
       }),
       // Deploys a Little Kiln: a destructible turret that holds ground and
       // pelts the nearest enemy. Only one at a time — placement IS the skill.
@@ -585,6 +627,7 @@ export const CHARACTERS: Record<CharId, CharacterDef> = {
     epithet: "the Last Ember",
     color: 0xff9d3a,
     role: "Wildcard",
+    attackType: "melee",
     tagline: "Burns brightest at the end.",
     lore:
       "The last coal of Emberfall's first fire, small enough to cup in two " +

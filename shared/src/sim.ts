@@ -314,6 +314,8 @@ export interface Projectile {
   life: number;
   /** Sticky projectiles arm on landing; armed mines wait for triggerRadius. */
   armed: boolean;
+  /** Fighter ids already hit (pierce dedup). Absent until a piercing shot connects. */
+  hits?: number[];
   def: ProjectileDef;
 }
 
@@ -1058,12 +1060,14 @@ export class Sim {
         for (const f of this.fighters) {
           if (f.id === p.owner || f.state === "dead" || f.invuln > 0) continue;
           if (!this.friendlyFire && f.team === ownerTeam) continue;
+          if (p.hits && p.hits.includes(f.id)) continue; // pierce: never hit the same target twice
           const hb = hurtbox(f);
           if (!aabbOverlap(p.x - p.def.radius, p.y - p.def.radius, p.def.radius * 2, p.def.radius * 2, hb.x, hb.y, hb.w, hb.h)) continue;
           if (this.isParrying(f)) {
             p.owner = f.id; // reflected: it's YOUR projectile now
             p.vx = -p.vx;
             p.vy = -p.vy;
+            p.hits = undefined; // reflected shot is a fresh threat to everyone
             this.events.push({ t: "parry", id: f.id, x: f.x, y: f.y - f.stats.height / 2 });
             break;
           }
@@ -1074,7 +1078,9 @@ export class Sim {
             this.outScaleOf(p.owner), p.def.burn,
           );
           directVictim = f.id;
-          dead = true;
+          // pierce: survive until it has passed through (pierce + 1) targets
+          (p.hits ??= []).push(f.id);
+          if (p.hits.length > (p.def.pierce ?? 0)) dead = true;
           break;
         }
       }

@@ -539,3 +539,55 @@ describe("cross-system snapshot round-trip", () => {
     expect(JSON.stringify(serializeSim(simB))).toBe(JSON.stringify(serializeSim(simA)));
   });
 });
+
+// ---------------------------------------------------------------------------
+describe("piercing projectiles (ranged primary)", () => {
+  // shooter (team 0) at left, two enemies (team 1) in a horizontal line right
+  function trio(owner: CharId): Sim {
+    const sim = new Sim(emberfallKeep());
+    sim.itemsEnabled = false;
+    sim.addFighter(owner, 0);
+    sim.addFighter("ogre", 1);
+    sim.addFighter("ogre", 1);
+    place(sim.fighters[0], 700, 780);
+    place(sim.fighters[1], 850, 780);
+    place(sim.fighters[2], 970, 780);
+    return sim;
+  }
+
+  it("a ranger arrow pierces the first enemy and still hits the second", () => {
+    const sim = trio("ranger");
+    steps(sim, 1, [frame(Btn.Light, 1, 0)]); // fire once, then coast
+    const reached = stepUntil(sim, () => sim.fighters[2].damage > 0, 60);
+    expect(reached).toBeGreaterThan(0);
+    const d = CHARACTERS.ranger.moves.light.projectile!.damage;
+    expect(sim.fighters[1].damage).toBe(d); // first target: hit exactly once
+    expect(sim.fighters[2].damage).toBe(d); // pierced through to the second
+  });
+
+  it("a non-piercing bolt dies on the first enemy it hits", () => {
+    const sim = trio("mage");
+    steps(sim, 1, [frame(Btn.Light, 1, 0)]);
+    stepUntil(sim, () => sim.fighters[1].damage > 0, 60);
+    steps(sim, 25); // give a piercing shot time to reach the second — it can't
+    expect(sim.fighters[1].damage).toBeGreaterThan(0);
+    expect(sim.fighters[2].damage).toBe(0);
+  });
+
+  it("a mid-flight piercing shot survives the wire (hits[] round-trips)", () => {
+    const simA = trio("ranger");
+    simA.step([frame(Btn.Light, 1, 0), N, N]);
+    stepUntil(simA, () => simA.fighters[1].damage > 0, 60); // pierced #1, still flying
+    expect(simA.projectiles.length).toBe(1);
+    expect(simA.projectiles[0].hits).toEqual([1]);
+
+    const wire = JSON.parse(JSON.stringify(serializeSim(simA)));
+    const simB = trio("ranger");
+    simB.step([N, N, N]); // desync, then load over it
+    applySimSnap(simB, wire);
+    expect(simB.projectiles[0].hits).toEqual([1]); // pierce state crossed the wire
+    for (let t = 0; t < 40; t++) { simA.step([N, N, N]); simB.step([N, N, N]); }
+    expect(JSON.stringify(serializeSim(simB))).toBe(JSON.stringify(serializeSim(simA)));
+    expect(simA.fighters[2].damage).toBeGreaterThan(0); // and it reached the second target
+  });
+});

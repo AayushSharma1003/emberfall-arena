@@ -54,6 +54,7 @@ export interface ProjSnap {
   x: number; y: number; vx: number; vy: number;
   life: number;
   armed: boolean;
+  hits?: number[];
   def: ProjectileDef;
 }
 
@@ -141,7 +142,8 @@ export function serializeSim(sim: Sim): SimSnap {
     hitstop: sim.hitstop,
     fighters: sim.fighters.map(serializeFighter),
     projectiles: sim.projectiles.map((p: Projectile): ProjSnap => ({
-      owner: p.owner, x: p.x, y: p.y, vx: p.vx, vy: p.vy, life: p.life, armed: p.armed, def: { ...p.def },
+      owner: p.owner, x: p.x, y: p.y, vx: p.vx, vy: p.vy, life: p.life, armed: p.armed,
+      hits: p.hits ? [...p.hits] : undefined, def: { ...p.def },
     })),
     constructs: sim.constructs.map((c: Construct): ConstructSnap => ({
       owner: c.owner, team: c.team, x: c.x, y: c.y, vy: c.vy,
@@ -164,7 +166,8 @@ export function applySimSnap(sim: Sim, snap: SimSnap): void {
     applyFighterSnap(sim.fighters[i], snap.fighters[i]);
   }
   sim.projectiles = snap.projectiles.map((p) => ({
-    owner: p.owner, x: p.x, y: p.y, vx: p.vx, vy: p.vy, life: p.life, armed: p.armed, def: { ...p.def },
+    owner: p.owner, x: p.x, y: p.y, vx: p.vx, vy: p.vy, life: p.life, armed: p.armed,
+    hits: p.hits ? [...p.hits] : undefined, def: { ...p.def },
   }));
   sim.constructs = snap.constructs.map((c) => ({
     owner: c.owner, team: c.team, x: c.x, y: c.y, vy: c.vy,

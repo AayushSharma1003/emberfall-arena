@@ -190,6 +190,40 @@ export function computeTargetPose(v: RigView, ctx: PoseCtx, weapon: string): Pos
         p.glow = 1;
         break;
       }
+      if (atk.style === "throw" || atk.style === "cast") {
+        // RANGED: present and project — never cock behind the shoulder like a
+        // swing. A bow draws its string; a staff/hand raises and releases.
+        const isDraw = weapon === "bow";
+        if (ph.phase === "windup") {
+          const t = easeOutCubic(ph.t);
+          p.armF_a = lerp(carry.armF_a ?? 0.3, A - 0.28, t); // rise toward the aim
+          p.armF_e = lerp(carry.armF_e ?? 0.3, isDraw ? 0.14 : 0.5, t);
+          p.torso_a = lerp(carry.torso_a ?? 0.03, -0.12, t);
+          p.head_a = -0.06 * t;
+          p.armB_a = lerp(carry.armB_a ?? -0.1, isDraw ? 1.2 : 0.55, t); // bow: draw string back
+          p.armB_e = lerp(carry.armB_e ?? 0.3, isDraw ? 0.95 : 0.7, t);
+          p.glow = (atk.style === "cast" ? 0.4 : 0.2) + 0.4 * t;
+        } else if (ph.phase === "strike") {
+          const t = easeOutCubic(ph.t);
+          p.armF_a = lerp(A - 0.28, A, t); // snap onto the aim line
+          p.armF_e = 0.05;
+          p.torso_a = lerp(-0.12, 0.1, t);
+          p.head_a = 0.04;
+          p.armB_a = lerp(isDraw ? 1.2 : 0.55, isDraw ? 0.15 : -0.2, t); // release / follow-through
+          p.armB_e = lerp(isDraw ? 0.95 : 0.7, isDraw ? 0.4 : 0.3, t);
+          p.legF_a = 0.2; p.legB_a = -0.25;
+          p.glow = 1;
+        } else {
+          const t = easeOutCubic(ph.t);
+          p.armF_a = lerp(A, carry.armF_a ?? 0.3, t);
+          p.armF_e = lerp(0.05, carry.armF_e ?? 0.3, t);
+          p.torso_a = lerp(0.1, carry.torso_a ?? 0.03, t);
+          p.armB_a = lerp(isDraw ? 0.15 : -0.2, carry.armB_a ?? -0.1, t);
+          p.armB_e = lerp(isDraw ? 0.4 : 0.3, carry.armB_e ?? 0.3, t);
+          p.weap_a = lerp(0, carry.weap_a ?? 0, t);
+        }
+        break;
+      }
 
       if (ph.phase === "windup") {
         const t = easeInCubic(ph.t);
@@ -211,10 +245,6 @@ export function computeTargetPose(v: RigView, ctx: PoseCtx, weapon: string): Pos
         p.weap_a = 0;
         p.legF_a = 0.4; p.legB_a = -0.45;
         p.pelvis_dy = heavyish ? 5 : 2;
-        if (atk.style === "throw" || atk.style === "cast") {
-          p.armF_e = 0.05;
-          p.glow = 1;
-        }
         if (atk.style === "slam") { p.armB_a = p.armF_a; p.armB_e = 0.15; }
       } else {
         const t = easeOutCubic(ph.t);
