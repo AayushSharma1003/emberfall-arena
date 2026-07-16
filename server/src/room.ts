@@ -6,6 +6,7 @@
  * Transport-agnostic: `send` callbacks are injected, `tick()` is driven
  * externally (setInterval in production, manually in tests).
  */
+import { randomBytes } from "node:crypto";
 import {
   Sim, serializeSim, hurtboxOf, stageById,
   MAX_LAGCOMP_TICKS, SNAPSHOT_EVERY,
@@ -50,9 +51,9 @@ export interface RoomPlayer {
 
 const NEUTRAL: InputFrame = { buttons: 0, aimX: 0, aimY: 0 };
 
-let tokenCounter = 0;
+/** Reconnect credential: 192 bits from the CSPRNG. Rotated on every reattach (single-use). */
 function makeToken(): string {
-  return `t${Date.now().toString(36)}${(tokenCounter++).toString(36)}${Math.floor(Math.random() * 1e9).toString(36)}`;
+  return randomBytes(24).toString("base64url");
 }
 
 export class Room {
@@ -62,6 +63,8 @@ export class Room {
   stageId = "emberfall_keep";
   /** Test hook: start the match the moment the room is full, skipping ready-up. */
   autoStart = false;
+  /** Wall-clock ms when the room last became empty; the registry frees it after a grace window. */
+  emptySince: number | null = null;
 
   private history: { tick: number; x: number; y: number }[][] = [];
   private eventBuf: SimEvent[] = [];
@@ -231,15 +234,46 @@ export class Room {
     p.ready = false;
     p.disconnectedAt = this.sim?.tick ?? -1;
     this.broadcast({ t: "peerLeft", playerId });
-    // NOTE: lobby slots are tombstoned, not freed — a mid-lobby leaver's
-    // slot only opens up again via their reconnect token. Acceptable v1.
+    // NOTE: lobby slots left by a DROPPED socket are tombstoned, not freed —
+    // that player may come back on their token. A clean leave() frees them.
     this.lobbyUpdate();
   }
 
-  /** Reconnect: swap in a new send fn, resume. */
+  /**
+   * Clean exit (the client said goodbye, not a dropped socket). In the lobby
+   * the slot is freed and ids reindexed — each remaining player gets a fresh
+   * personalized welcome so their id stays true. Mid-match it's a disconnect
+   * with the reconnect token burned.
+   */
+  leave(playerId: number): void {
+    const p = this.players[playerId];
+    if (!p) return;
+    if (this.phase === "lobby") {
+      this.players.splice(playerId, 1);
+      this.players.forEach((x, i) => {
+        x.id = i;
+        x.team = (i % 2) as 0 | 1;
+      });
+      for (const x of this.players) {
+        if (!x.connected) continue;
+        x.send({
+          t: "welcome", playerId: x.id, roomCode: this.code, token: x.token,
+          tick: 0, players: this.playerInfos(), stageId: this.stageId,
+        });
+      }
+      this.lobbyUpdate();
+    } else {
+      p.token = ""; // no coming back from a deliberate exit
+      this.markDisconnected(playerId);
+    }
+  }
+
+  /** Reconnect: swap in a new send fn, rotate the token (single-use), resume. */
   reattach(token: string, send: (m: ServerMsg) => void): RoomPlayer | null {
+    if (!token) return null; // burned/blank tokens never match
     const p = this.players.find((x) => x.token === token);
-    if (!p) return null;
+    if (!p || p.connected) return null; // no hijacking a live seat
+    p.token = makeToken();
     p.send = send;
     p.connected = true;
     p.disconnectedAt = -1;

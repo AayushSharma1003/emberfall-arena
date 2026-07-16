@@ -10,6 +10,9 @@
  *    local fighter and snapshot interpolation for remote fighters. The
  *    stage is chosen by whoever creates the room.
  */
+// the deploy ships a strict CSP (script-src 'self', no unsafe-eval); this
+// shim swaps Pixi's new Function() codegen for precompiled equivalents
+import "pixi.js/unsafe-eval";
 import { Application, Graphics } from "pixi.js";
 import {
   CHARACTERS, CHAR_IDS, DT, INPUT_BATCH, INTERP_DELAY_TICKS, STAGE_INFO,
@@ -27,6 +30,8 @@ import {
 import { NetClient } from "./net.js";
 import { LobbyScreen } from "./lobby.js";
 import { silentAudio } from "./engine/audio.js";
+import { parseBoot, readResumeMarker, resumeIntent } from "./boot.js";
+import { OnlineSession } from "./online/session.js";
 import { ScreenFlow, ScreenHost, type ScreenId, type ScreenView } from "./ui/flow.js";
 import type { UiContext } from "./ui/screens.js";
 import { MenuScreen } from "./ui/menu.js";
@@ -35,6 +40,9 @@ import { MapSelectScreen } from "./ui/mapselect.js";
 import { PlaceholderScreen } from "./ui/placeholder.js";
 import { MatchScreen } from "./ui/match.js";
 import { ResultsScreen } from "./ui/results.js";
+import { OnlineScreen } from "./ui/online.js";
+import { OnlineLobbyScreen } from "./ui/onlinelobby.js";
+import { OnlineMatchScreen } from "./ui/onlinematch.js";
 
 async function main(): Promise<void> {
   const app = new Application();
@@ -47,13 +55,17 @@ async function main(): Promise<void> {
   });
   document.body.appendChild(app.canvas);
 
-  const params = new URLSearchParams(location.search);
-  if (params.has("server") || params.has("room")) {
-    onlineMode(app, params);
-  } else if (params.has("hotseat")) {
-    localMode(app, params);
+  let intent = parseBoot(location.search);
+  if (intent.mode === "menu") {
+    // reopened mid-match? the resume marker gets us back into the room
+    intent = resumeIntent(readResumeMarker()) ?? intent;
+  }
+  if (intent.mode === "legacyOnline") {
+    onlineMode(app, new URLSearchParams(location.search));
+  } else if (intent.mode === "hotseat") {
+    localMode(app, new URLSearchParams(location.search));
   } else {
-    menuMode(app);
+    menuMode(app, intent.mode === "online" ? intent : null);
   }
 }
 
@@ -61,9 +73,15 @@ async function main(): Promise<void> {
 // menu flow (default boot)
 // ---------------------------------------------------------------------------
 
-function menuMode(app: Application): void {
-  const flow = new ScreenFlow();
-  const ctx: UiContext = { app, flow, audio: silentAudio };
+function menuMode(app: Application, online: { code: string; host: boolean } | null): void {
+  // invite deep link: consume it, then scrub the query so the room code never
+  // rides along in history or a Referer header
+  if (online) history.replaceState(null, "", location.pathname);
+
+  const flow = new ScreenFlow(online ? "online" : "menu");
+  flow.onlineIntent = online;
+  const session = new OnlineSession();
+  const ctx: UiContext = { app, flow, audio: silentAudio, online: session };
   const views: Record<ScreenId, ScreenView> = {
     menu: new MenuScreen(ctx),
     charselect: new CharSelectScreen(ctx),
@@ -71,6 +89,9 @@ function menuMode(app: Application): void {
     loading: new PlaceholderScreen(ctx, "loading", "THE EMBERS STIR…", null, { to: "match", afterS: 0.7 }),
     match: new MatchScreen(ctx),
     results: new ResultsScreen(ctx),
+    online: new OnlineScreen(ctx),
+    onlinelobby: new OnlineLobbyScreen(ctx),
+    onlinematch: new OnlineMatchScreen(ctx),
   };
   const host = new ScreenHost(views, flow);
   host.boot();
@@ -206,7 +227,14 @@ function onlineMode(app: Application, params: URLSearchParams): void {
     ? serverParam
     : location.protocol === "https:"
       ? `wss://${location.host}/ws`
-      : `ws://${location.hostname}:8080`;
+      : `ws://${location.port === "5173" ? `${location.hostname}:8080` : location.host}/ws`;
+  // a secure page never talks to an unencrypted socket (localhost dev excepted)
+  if (location.protocol === "https:" && url.startsWith("ws://")) {
+    const lobbyErr = new LobbyScreen(app);
+    lobbyErr.visible = true;
+    lobbyErr.status("INSECURE SERVER URL", "use wss:// from an https page");
+    return;
+  }
   const wantedChar = (params.get("char") ?? "knight") as CharId;
   const charId: CharId = wantedChar in CHARACTERS ? wantedChar : "knight";
   const name = params.get("name") ?? "player";

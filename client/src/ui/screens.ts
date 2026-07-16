@@ -6,12 +6,15 @@
  */
 import { Application, Container, Graphics, Text, TextStyle } from "pixi.js";
 import type { AudioBus } from "../engine/audio.js";
+import type { OnlineSession } from "../online/session.js";
 import type { ScreenFlow, ScreenId, ScreenView } from "./flow.js";
 
 export interface UiContext {
   app: Application;
   flow: ScreenFlow;
   audio: AudioBus;
+  /** One session for the whole app; the online screens drive it. */
+  online: OnlineSession;
 }
 
 // ---------- palette ----------

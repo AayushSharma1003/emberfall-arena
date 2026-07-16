@@ -85,6 +85,7 @@ export class MenuScreen extends BaseScreen {
     this.nav = new Container();
     const items: [string, () => void][] = [
       ["PLAY", () => this.play()],
+      ["PLAY ONLINE", () => this.playOnline()],
       ["CHARACTERS", () => this.browse("charselect")],
       ["MAPS", () => this.browse("mapselect")],
       ["SETTINGS", () => this.toggleSettings(true)],
@@ -121,11 +122,19 @@ export class MenuScreen extends BaseScreen {
   // ---------- actions ----------
   private play(): void {
     this.ctx.flow.browsing = false;
+    this.ctx.flow.onlinePick = false;
     this.ctx.flow.go("charselect");
+  }
+
+  private playOnline(): void {
+    this.ctx.flow.browsing = false;
+    this.ctx.flow.onlinePick = false;
+    this.ctx.flow.go("online");
   }
 
   private browse(to: "charselect" | "mapselect"): void {
     this.ctx.flow.browsing = true;
+    this.ctx.flow.onlinePick = false;
     this.ctx.flow.go(to);
   }
 

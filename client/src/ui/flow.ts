@@ -8,7 +8,9 @@
 import type { CharId } from "@emberfall/shared";
 import type { FighterTally } from "@emberfall/shared";
 
-export type ScreenId = "menu" | "charselect" | "mapselect" | "loading" | "match" | "results";
+export type ScreenId =
+  | "menu" | "charselect" | "mapselect" | "loading" | "match" | "results"
+  | "online" | "onlinelobby" | "onlinematch";
 
 /** solo = 1v1 vs one bot; duo = 2v2, human + bot ally vs two bots. */
 export type MatchMode = "solo" | "duo";
@@ -52,12 +54,15 @@ export interface MatchResult {
 }
 
 const LEGAL: Record<ScreenId, readonly ScreenId[]> = {
-  menu: ["charselect", "mapselect"],
-  charselect: ["mapselect", "menu"],
+  menu: ["charselect", "mapselect", "online"],
+  charselect: ["mapselect", "menu", "onlinelobby"],
   mapselect: ["loading", "charselect", "menu"],
   loading: ["match"],
   match: ["results", "menu"],
   results: ["loading", "menu"],
+  online: ["onlinelobby", "menu"],
+  onlinelobby: ["charselect", "onlinematch", "online", "menu"],
+  onlinematch: ["onlinelobby", "menu"],
 };
 
 /** What character select hands to map select; map select completes it into a MatchConfig. */
@@ -67,8 +72,14 @@ export interface MatchDraft {
   allyChar: CharId | null;
 }
 
+/** What a /?room=CODE deep link asks the Online screen to do on mount. */
+export interface OnlineIntent {
+  code: string;
+  host: boolean;
+}
+
 export class ScreenFlow {
-  screen: ScreenId = "menu";
+  screen: ScreenId;
   /** Set by startMatch; kept through rematch. */
   config: MatchConfig | null = null;
   result: MatchResult | null = null;
@@ -76,7 +87,15 @@ export class ScreenFlow {
   draft: MatchDraft | null = null;
   /** True when charselect/mapselect were opened from the menu just to browse. */
   browsing = false;
+  /** True when charselect was opened from the ONLINE lobby (single pick, back to lobby). */
+  onlinePick = false;
+  /** Deep-link payload for the Online screen; consumed on its first mount. */
+  onlineIntent: OnlineIntent | null = null;
   private listeners: ((to: ScreenId) => void)[] = [];
+
+  constructor(initial: ScreenId = "menu") {
+    this.screen = initial;
+  }
 
   onChange(cb: (to: ScreenId) => void): void {
     this.listeners.push(cb);

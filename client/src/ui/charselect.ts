@@ -35,7 +35,7 @@ interface FlyingBolt {
   life: number;
 }
 
-class RigPuppet {
+export class RigPuppet {
   readonly node = new Container();
   readonly fx = new Container(); // projectiles/swooshes, sibling of the rig so they don't scale with it
   private rig: FighterRig;
@@ -233,11 +233,21 @@ export class CharSelectScreen extends BaseScreen {
     return this.ctx.flow.browsing;
   }
 
+  /** Opened from the online lobby: one pick, confirm sends it and returns there. */
+  private get onlinePick(): boolean {
+    return this.ctx.flow.onlinePick;
+  }
+
   protected build(): void {
     this.t = 0;
     this.focusIdx = 0;
     this.pickPlayer = null;
     this.pickAlly = null;
+    if (this.onlinePick) {
+      this.mode = "solo";
+      this.pickPlayer = this.ctx.online.me?.charId ?? null; // current pick pre-selected
+      if (this.pickPlayer) this.focusIdx = Math.max(0, CHAR_IDS.indexOf(this.pickPlayer));
+    }
 
     this.bg = new Graphics();
     this.root.addChild(this.bg);
@@ -393,9 +403,15 @@ export class CharSelectScreen extends BaseScreen {
     this.pickChips.anchor.set(0.5, 0.5);
     this.footRoot.addChild(this.pickChips);
 
-    this.confirmBtn = new UiButton("TO THE GROUNDS  →", 26, () => {
+    this.confirmBtn = new UiButton(this.onlinePick ? "LOCK IN  →" : "TO THE GROUNDS  →", 26, () => {
       if (!this.active || !this.readyToConfirm()) return;
       this.ctx.audio.play("ui_select");
+      if (this.onlinePick) {
+        this.ctx.online.setChar(this.pickPlayer!);
+        this.ctx.flow.onlinePick = false;
+        this.ctx.flow.go("onlinelobby");
+        return;
+      }
       this.ctx.flow.draft = { mode: this.mode, playerChar: this.pickPlayer!, allyChar: this.pickAlly };
       this.ctx.flow.go("mapselect");
     }, () => this.ctx.audio.play("ui_move"));
@@ -404,19 +420,34 @@ export class CharSelectScreen extends BaseScreen {
     this.backBtn = new UiButton("← BACK", 18, () => {
       if (!this.active) return;
       this.ctx.audio.play("ui_back");
-      this.ctx.flow.go("menu");
+      this.goBack();
     }, () => this.ctx.audio.play("ui_move"));
     this.footRoot.addChild(this.backBtn.root);
   }
 
+  private goBack(): void {
+    if (this.onlinePick) {
+      this.ctx.flow.onlinePick = false;
+      this.ctx.flow.go("onlinelobby");
+    } else {
+      this.ctx.flow.go("menu");
+    }
+  }
+
   private readyToConfirm(): boolean {
     if (this.browsing) return false;
-    if (this.mode === "solo") return this.pickPlayer !== null;
+    if (this.onlinePick || this.mode === "solo") return this.pickPlayer !== null;
     return this.pickPlayer !== null && this.pickAlly !== null;
   }
 
   private pick(id: CharId): void {
     if (this.browsing) return;
+    if (this.onlinePick) {
+      this.ctx.audio.play("ui_select");
+      this.pickPlayer = id; // single pick, re-pick replaces
+      this.updateHeader();
+      return;
+    }
     this.ctx.audio.play("ui_select");
     if (this.pickPlayer === null) {
       this.pickPlayer = id;
@@ -434,6 +465,13 @@ export class CharSelectScreen extends BaseScreen {
     if (this.browsing) {
       this.header.text = "THE ROSTER";
       this.subheader.text = "hover to preview  ·  ESC to return";
+      return;
+    }
+    if (this.onlinePick) {
+      this.header.text = "CHOOSE YOUR FIGHTER";
+      this.subheader.text = this.pickPlayer
+        ? `${CHARACTERS[this.pickPlayer].name} — lock in to return to the lobby`
+        : "your opponent will see your pick";
       return;
     }
     if (this.pickPlayer === null) {
@@ -464,16 +502,16 @@ export class CharSelectScreen extends BaseScreen {
         return;
       case "Escape":
         this.ctx.audio.play("ui_back");
-        if (!this.browsing && this.mode === "duo" && this.pickAlly === null && this.pickPlayer !== null) {
+        if (!this.browsing && !this.onlinePick && this.mode === "duo" && this.pickAlly === null && this.pickPlayer !== null) {
           this.pickPlayer = null; // step back one pick
           this.updateHeader();
         } else {
-          this.ctx.flow.go("menu");
+          this.goBack();
         }
         return;
       case "Tab":
         e.preventDefault();
-        if (!this.browsing) this.modeButtons[this.mode === "duo" ? 1 : 0].pick();
+        if (!this.browsing && !this.onlinePick) this.modeButtons[this.mode === "duo" ? 1 : 0].pick();
         return;
       default: {
         const digit = e.code.match(/^Digit([1-9])$/);
@@ -629,10 +667,12 @@ export class CharSelectScreen extends BaseScreen {
     this.modeButtons[1].focused = this.mode === "solo";
     for (const b of this.modeButtons) {
       b.update(dt);
-      b.root.visible = !this.browsing;
+      b.root.visible = !this.browsing && !this.onlinePick;
     }
     if (this.browsing) {
       this.pickChips.text = "";
+    } else if (this.onlinePick) {
+      this.pickChips.text = `YOU  ${this.pickPlayer ? CHARACTERS[this.pickPlayer].name : "—"}`;
     } else if (this.mode === "duo") {
       const p = this.pickPlayer ? CHARACTERS[this.pickPlayer].name : "—";
       const a = this.pickAlly ? CHARACTERS[this.pickAlly].name : "—";

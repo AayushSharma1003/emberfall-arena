@@ -49,6 +49,37 @@ describe("ScreenFlow", () => {
     expect(() => new ScreenFlow().rematch()).toThrow();
   });
 
+  it("online path: menu → online → lobby → charselect-and-back → match → menu", () => {
+    const f = new ScreenFlow();
+    f.go("online");
+    f.go("onlinelobby");
+    f.go("charselect"); // change fighter from the lobby
+    f.go("onlinelobby"); // lock in returns there
+    f.go("onlinematch");
+    f.go("menu");
+    expect(f.screen).toBe("menu");
+  });
+
+  it("online dead-ends stay illegal: no match without a lobby, no offline shortcuts", () => {
+    const f = new ScreenFlow();
+    expect(() => f.go("onlinematch")).toThrow(/illegal/);
+    expect(() => f.go("onlinelobby")).toThrow(/illegal/);
+    f.go("online");
+    expect(() => f.go("onlinematch")).toThrow(/illegal/); // must pass through the lobby
+    expect(() => f.go("mapselect")).toThrow(/illegal/); // online never picks maps client-side
+    f.go("onlinelobby");
+    f.go("online"); // join error path bounces back to the online screen
+    f.go("menu");
+  });
+
+  it("a deep link can boot the flow directly on the online screen", () => {
+    const f = new ScreenFlow("online");
+    f.onlineIntent = { code: "ABC234", host: false };
+    expect(f.screen).toBe("online");
+    f.go("menu"); // and it can still bail to the menu
+    expect(f.screen).toBe("menu");
+  });
+
   it("rosterOf: solo is 1v1, duo interleaves teams 0,1,0,1 with the human first", () => {
     expect(rosterOf({ ...CFG, mode: "solo" })).toEqual([
       { charId: "mage", team: 0, human: true },
@@ -84,6 +115,7 @@ function probeViews(log: string[]): Record<ScreenId, Probe> {
   return {
     menu: make("menu"), charselect: make("charselect"), mapselect: make("mapselect"),
     loading: make("loading"), match: make("match"), results: make("results"),
+    online: make("online"), onlinelobby: make("onlinelobby"), onlinematch: make("onlinematch"),
   };
 }
 

@@ -25,6 +25,19 @@ export interface PlayerInfo {
   team: 0 | 1;
 }
 
+/**
+ * Error codes the server can answer with. The client keys its copy off
+ * these — never off the human-readable message.
+ */
+export type ErrorCode =
+  | "bad_room_code" // malformed code (wrong length/charset)
+  | "no_room" // code is valid but no such room
+  | "room_exists" // create collision — host should regenerate and retry
+  | "room_full"
+  | "room_started" // room exists but the match is already running
+  | "server_full" // room/connection cap reached
+  | "bad_msg"; // malformed message (socket closes after this)
+
 /** Client -> Server */
 export type ClientMsg =
   | {
@@ -35,11 +48,14 @@ export type ClientMsg =
       token: string | null;
       /** Stage request — honored only when this join creates the room. */
       stage?: string | null;
+      /** Host flow: create a room with this specific (client-generated) code. */
+      create?: boolean;
     }
   | { t: "input"; inputs: TickInput[] }
   | { t: "setChar"; charId: CharId }
   | { t: "ready"; ready: boolean }
   | { t: "start" } // host only
+  | { t: "leave" } // clean exit: free the slot / room, invalidate the token
   | { t: "ping"; ts: number };
 
 /** Server -> Client */
@@ -67,4 +83,6 @@ export type ServerMsg =
   | { t: "peerBack"; playerId: number }
   | { t: "gameOver"; winners: number[] }
   | { t: "pong"; ts: number }
-  | { t: "error"; code: string; message: string };
+  /** Graceful shutdown notice (deploy/spin-down) sent just before sockets close. */
+  | { t: "serverRestart"; reason: string }
+  | { t: "error"; code: ErrorCode; message: string };

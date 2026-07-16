@@ -475,3 +475,70 @@ deterministically to verify.)
 - Full settings screen (stubbed: volume + fullscreen only).
 - Audio implementation (hooks reserved in `engine/audio.ts`; UI routes
   `ui_move`/`ui_select`/`ui_back`/`countdown`/`match_win` through the bus).
+
+---
+
+## Phase J — Online in the menu: host/join UX, hardening, reconnect
+
+**Built (this phase)**
+- **PLAY ONLINE in the main menu** (between PLAY and CHARACTERS): a full
+  online flow inside the painterly screen machine — `online` (HOST GAME /
+  six-slot JOIN code input with inline per-error copy), `onlinelobby`
+  (big room code, one-click `/?room=CODE` invite link, live rig puppets,
+  ready-up, ember "waiting for opponent…"), `onlinematch` (the prediction/
+  interpolation loop from onlineMode, now a screen). Character changes
+  reuse `CharSelectScreen` (`flow.onlinePick`: single pick, LOCK IN).
+- **OnlineSession** (`client/src/online/session.ts`): one headless state
+  machine for the whole client side — connect with cold-start detection
+  (>3s dial → "waking up the server, 30–50s" copy; 60s timeout → retry),
+  host codes generated client-side (crypto) with collision retry, reconnect
+  with exponential backoff (1s→30s cap, 75s window) on drops and on the new
+  `serverRestart` shutdown notice, inbound message validation so a hostile
+  server can't crash the client. Injectable WebSocket/token store — every
+  path is unit-tested with fake sockets and fake timers.
+- **Room codes are 6 chars** from a 31-glyph alphabet (no 0/O/1/I/L),
+  shared client/server (`shared/src/protocol/roomcode.ts`); the client
+  mints them when hosting (`join` gained `create`), the server enforces
+  shape, uniqueness (`room_exists` → retry) and typed error codes
+  (`no_room`/`room_full`/`room_started`/`server_full`/`bad_room_code`).
+- **Deep links**: `/?room=CODE` lands on JOIN prefilled and auto-attempts
+  (bad/unknown codes show inline — the fullscreen ERROR page is gone from
+  the online path); `&host=1` hosts with that exact code; the query is
+  scrubbed from history and an `ef_resume` sessionStorage marker (90s)
+  lets a reopened tab auto-rejoin its match with the stored token.
+- **Server hardening** (`gateway.ts` + `registry.ts`, split from main.ts so
+  the untrusted surface is testable): schema validation on every frame
+  (malformed → 1008 close), per-connection rate limiting (soft cap drops,
+  hard cap closes), connection + room caps with `server_full`, Origin
+  allowlist on the `/ws` upgrade (own host + localhost; foreign web pages
+  refused), ping/pong keepalive that terminates dead sockets, crypto
+  reconnect tokens (192-bit, single-use — rotated on every reattach, can't
+  hijack a live seat), clean `leave` frees lobby slots (personalized
+  re-welcome keeps ids true), empty rooms held 60s for reconnect then
+  swept, user strings JSON-quoted in logs.
+- **Headers**: CSP (`script-src 'self'` — Pixi runs via the
+  `pixi.js/unsafe-eval` shim; `connect-src` pinned to self + own ws origin;
+  `frame-ancestors 'none'`), HSTS behind TLS, nosniff, X-Frame-Options
+  DENY, `Referrer-Policy: same-origin` so invite codes never leak in a
+  Referer. Client refuses `ws://` from an https page.
+
+**Tests: 326/326 green** (62 new: roomcode shape/normalize/generate; registry
+create/collision-race/caps/grace-expiry; gateway lifecycle + reconnect-token
++ validation/rate-limit/cross-room/conn-cap/keepalive-reaper over real
+sockets; httpserver origin policy + security headers + serverRestart
+broadcast; a full two-client integration match with drop + token resume;
+session cold-start/timeout/backoff/restart/hostile-server; boot param
+parsing + resume markers; online flow transitions).
+
+**Verified in-browser on the compiled bundle** (`node dist/main.js`): menu →
+PLAY ONLINE → HOST → painterly code + lobby; invite URL in a second tab →
+JOIN prefilled → both in lobby with live puppets; CHANGE FIGHTER through
+the real character select (pick propagates to the other client); both ready
+→ match starts, movement stays in sync across tabs; reload one tab
+mid-match → resume marker + token reattach put it straight back into the
+running match; staying gone 30s forfeits (other side gets VICTORY);
+`/?room=ZZZZZZ` and `/?room=NOTREAL` both land inline on the JOIN screen.
+
+**Deferred / out of scope for this chunk** (per the brief)
+- 4-player / 2v2 online (server supports it; menu flow is 1v1 MVP).
+- Lobby chat, kick/moderation, ranked/matchmaking, accounts, analytics.
