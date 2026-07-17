@@ -7,9 +7,9 @@ netcode core with client-side prediction. Nine hand-rigged fighters,
 four maps, items, stage hazards. No external art: every fighter, arena,
 and effect is coded (primitives, gradients, procedural rigs).
 
-**Status:** single-player flow complete on top of the verified Phase-H
-combat baseline. 257 headless tests green. Needs human playtesting for
-feel/balance (see `docs/BUILD_LOG.md`).
+**Status:** single-player and 1v1 online complete on top of the verified
+Phase-H combat baseline. 326 headless tests green. Needs human playtesting
+for feel/balance (see `docs/BUILD_LOG.md`).
 
 ## Run it
 
@@ -20,17 +20,19 @@ npm run dev        # client → http://localhost:5173  (main menu → quick matc
 npm run dev:server # game server on :8080 (for online play)
 ```
 
-Default boot is the **main menu**: Play walks you through character select
+Default boot is the **main menu**: PLAY walks you through character select
 (pick yourself + a bot ally in 2v2) → map select (difficulty Easy/Normal/
-Hard) → a quick match against bots → results (rematch or menu).
+Hard) → a quick match against bots → results (rematch or menu). **PLAY
+ONLINE** hosts or joins a 1v1 room by 6-character code, with a
+one-click invite link and mid-match reconnect.
 
 **`?hotseat`** boots the old two-player local sandbox (URL: `?hotseat&stage=molten_span`).
 
-Online (dev): open `http://localhost:5173/?server` in one tab (creates a
-room, shows the 4-letter code), `http://localhost:5173/?room=CODE` in
-another. Optional params: `&char=goblin&name=Zed&stage=molten_span`.
-Pick characters with 1-9, Space to ready up. 2-4 players (teams alternate
-by join order: P1+P3 vs P2+P4).
+**Online**: use PLAY ONLINE from the menu, or paste an invite URL
+directly — `/?room=CODE` prefills JOIN (auto-attempts), `/?room=CODE&host=1`
+hosts with that specific code. Codes are 6 chars from a no-ambiguous-glyph
+alphabet (`ABCDEFGHJKMNPQRSTUVWXYZ23456789`). Legacy `?server[=ws://…]` still
+works for external testing.
 
 ## Deploy
 
@@ -44,7 +46,8 @@ npm run build                              # client/dist + server/dist/main.js
 PORT=8099 node server/dist/main.js         # prod server: / client, /ws game, /health
 ```
 
-<!-- deployed at: filled in after the first Render deploy -->
+**Live:** https://emberfall-arena.onrender.com (Render free tier —
+expect a 30–50s cold start after ~15 min idle).
 
 ## Controls
 

@@ -42,6 +42,39 @@ client config**. Config lives in [`render.yaml`](../render.yaml) (a Blueprint).
    `…/?room=CODE` (joins) — see the online section in the README.
 5. `autoDeploy: true` — every push to `main` redeploys automatically.
 
+## Gotchas (things that will burn 30–60 min if you don't know)
+
+1. **Strict CSP (`script-src 'self'`, no `unsafe-eval`) + Pixi v8 = blank
+   page, no console errors.** Pixi v8's default shader/geometry paths call
+   `new Function(...)` at boot, which the CSP blocks; the browser reports
+   the rejection as an unhandled promise (`Current environment does not
+   allow unsafe-eval, please use pixi.js/unsafe-eval module`) rather than a
+   visible console error, and the canvas never mounts. **The fix is not to
+   loosen the CSP.** Import the shim as the FIRST Pixi import in
+   `client/src/main.ts`:
+   ```ts
+   import "pixi.js/unsafe-eval"; // must precede any other pixi.js import
+   import { Application } from "pixi.js";
+   ```
+   The shim ships precompiled equivalents (~40 KB added to the bundle) and
+   the strict CSP stays intact. If you ever see `script-src 'self'
+   'unsafe-eval'` in [`server/src/httpserver.ts`](../server/src/httpserver.ts),
+   somebody worked around this the wrong way — put the shim back and pull
+   `unsafe-eval` out.
+
+2. **`ws://` URLs from an https page get silently blocked by the browser
+   before the client even sees an error.** The client refuses this on its
+   own now (see `insecure_ws` in `session.ts`), and the CSP's `connect-src`
+   pins the socket origin to `self` + our own `wss://<host>`. If you're
+   diagnosing "connection just dies at open" on the deployed URL, verify
+   the derived WS URL is `wss://`, not `ws://`.
+
+3. **Invite deep link + `Referrer-Policy`.** Room codes ride in the URL
+   (`/?room=CODE`). The default browser `Referer` policy would leak that
+   URL to any outbound link the page follows. We set `Referrer-Policy:
+   same-origin` for exactly this reason — don't relax it without moving the
+   code out of the URL first.
+
 ## Cold starts (expected, not a bug)
 
 Free-tier services **spin down after ~15 min idle**; the next request triggers a
